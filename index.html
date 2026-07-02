@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>꽁지맵</title>
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <script>
+      if (location.protocol === "file:") {
+        location.replace("http://127.0.0.1:4173/");
+      }
+    </script>
+    <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=62klpb47yg&submodules=geocoder&_cb=20260624"></script>
+    <link rel="stylesheet" href="./styles.css?v=20260624-cluster-source-1" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="물건 필터와 목록">
+        <header class="brandbar">
+          <div>
+            <p class="eyebrow">경공매 물건선택</p>
+            <h1>꽁지맵</h1>
+          </div>
+          <button class="icon-button" id="resetFilters" type="button" title="필터 초기화" aria-label="필터 초기화">
+            ↺
+          </button>
+        </header>
+
+        <section class="metric-strip" aria-label="요약 지표">
+          <div>
+            <span id="metricCount">0</span>
+            <small>표시 물건</small>
+          </div>
+          <div>
+            <span id="metricAvgDiscount">0%</span>
+            <small>공시가 할인</small>
+          </div>
+          <div>
+            <span id="metricTopScore">0</span>
+            <small>최고 점수</small>
+          </div>
+        </section>
+
+        <section class="filters" aria-label="필터">
+          <label>
+            <span>지역</span>
+            <select id="regionFilter"></select>
+          </label>
+          <label>
+            <span>물건 유형</span>
+            <select id="typeFilter"></select>
+          </label>
+          <label>
+            <span>최소 공시가 할인율</span>
+            <output id="discountValue">전체</output>
+            <input id="discountFilter" type="range" min="-100" max="70" step="5" value="-100" />
+          </label>
+          <label>
+            <span>최대 위험도</span>
+            <select id="riskFilter">
+              <option value="all">전체</option>
+              <option value="낮음">낮음</option>
+              <option value="보통">보통 이하</option>
+              <option value="높음">높음 이하</option>
+            </select>
+          </label>
+          <label>
+            <span>정렬</span>
+            <select id="sortBy">
+              <option value="score">추천 점수순</option>
+              <option value="officialDiscount">공시가 할인율순</option>
+              <option value="marketDiscount">실거래 할인율순</option>
+              <option value="bidDate">입찰일 빠른순</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="property-list" id="propertyList" aria-label="물건 목록"></section>
+      </aside>
+
+      <section class="map-area" aria-label="지도">
+        <div class="map-toolbar">
+          <div class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input id="keywordSearch" type="search" placeholder="주소, 사건번호, 메모 검색" />
+          </div>
+          <div class="data-status" id="dataStatus">데이터 확인 중</div>
+        </div>
+
+        <div class="map-stage">
+          <div id="naverMap" class="naver-map" hidden></div>
+          <div id="fallbackMap" class="fallback-map" aria-label="개발용 좌표 보드">
+            <div class="map-grid"></div>
+            <div class="map-caption">
+              <strong>개발용 지도</strong>
+              <span>네이버 지도 키를 적용하면 실제 지도로 전환됩니다.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="detail-panel" id="detailPanel" aria-label="선택 물건 상세"></aside>
+    </main>
+
+    <template id="propertyCardTemplate">
+      <article class="property-card">
+        <div class="card-main">
+          <div>
+            <p class="case-no"></p>
+            <h2></h2>
+          </div>
+          <span class="score-pill"></span>
+        </div>
+        <p class="address"></p>
+        <div class="price-grid">
+          <div>
+            <span>최저입찰가</span>
+            <strong class="min-bid"></strong>
+          </div>
+          <div>
+            <span>공시기준가</span>
+            <strong class="official-value"></strong>
+          </div>
+          <div>
+            <span>공시가 대비</span>
+            <strong class="official-discount"></strong>
+          </div>
+          <div>
+            <span>실거래 대비</span>
+            <strong class="market-discount"></strong>
+          </div>
+        </div>
+        <div class="tag-row"></div>
+      </article>
+    </template>
+
+    <script src="./app.js?v=20260624-performance-1" defer></script>
+  </body>
+</html>

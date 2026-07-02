@@ -1,0 +1,11 @@
+{
+  "name": "ggongji-map",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public-price-aware auction and public sale property screening MVP.",
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "serve": "node dev-server.mjs",
+    "start": "node server.mjs"
+  }
+}

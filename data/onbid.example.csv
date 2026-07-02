@@ -1,0 +1,2 @@
+id,source,caseNo,title,type,region,address,lat,lng,minBid,appraisal,publicLandPricePerSqm,landArea,pnu,bidDate,failCount,risk,zoning,memo,checks
+onbid-example-1,온비드,ONBID-0001,예시 공매 토지,토지,충남 아산,충청남도 아산시 음봉면 산동리 422-9,36.8472,127.0421,76000000,131000000,88000,1032,4420025321104220009,2026-07-02,2,낮음,생산관리지역,CSV 반입 예시입니다,공시지가 이하|현장확인 필요
