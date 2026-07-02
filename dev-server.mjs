@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const host = process.env.HOST || (process.env.VERCEL ? "0.0.0.0" : "127.0.0.1");
 const port = Number(process.env.PORT || 4173);
@@ -26,6 +27,18 @@ const contentTypes = {
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8"
 };
+
+export async function handleApiRequest(request, response) {
+  const requestHost = request.headers.host || `${host}:${port}`;
+  const url = new URL(request.url || "/", `http://${requestHost}`);
+
+  if (url.pathname.startsWith("/api/")) {
+    await handleApi(url, response);
+    return;
+  }
+
+  sendJson(response, 404, { ok: false, error: "unknown_api" });
+}
 
 const server = createServer(async (request, response) => {
   const requestHost = request.headers.host || `${host}:${port}`;
@@ -58,9 +71,11 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, host, () => {
-  console.log(`http://${host}:${port}`);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  server.listen(port, host, () => {
+    console.log(`http://${host}:${port}`);
+  });
+}
 
 async function handleApi(url, response) {
   try {
