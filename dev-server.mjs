@@ -9,6 +9,9 @@ const port = Number(process.env.PORT || 4173);
 const root = resolve(".");
 loadDotEnv();
 
+const DEFAULT_ONBID_API_URL = "https://apis.data.go.kr/B010003/OnbidRlstListSrvc2";
+const DEFAULT_ONBID_QUERY = "resultType=json&prptDivCd=0007&pvctTrgtYn=N&dspsMthodCd=0001";
+
 const cache = {
   courtRowsPromise: null,
   courtRowsKey: "",
@@ -166,7 +169,7 @@ async function readExternalProperties() {
     properties,
     diagnostics: {
       onbid: {
-        configured: Boolean(process.env.ONBID_API_URL && process.env.ONBID_SERVICE_KEY),
+        configured: Boolean(onbidEndpoint() && process.env.ONBID_SERVICE_KEY),
         fetched: liveOnbid.rawCount || 0,
         mapped: liveOnbid.mappedCount || 0,
         dropped: liveOnbid.droppedCount || 0,
@@ -302,7 +305,7 @@ async function fetchLandPrice(params) {
   const pnu = params.get("pnu");
   const requestedYear = numberFrom(params.get("year")) || new Date().getFullYear();
   const serviceKey = process.env.VWORLD_API_KEY || process.env.PUBLIC_DATA_SERVICE_KEY;
-  const domain = process.env.VWORLD_API_DOMAIN || "http://127.0.0.1:4173";
+  const domain = vworldDomain();
 
   if (!pnu) return { ok: false, error: "missing_pnu" };
   if (!serviceKey) {
@@ -357,7 +360,7 @@ async function fetchLandPriceYear({ pnu, year, serviceKey, domain }) {
 async function fetchParcelBoundary(params) {
   const pnu = params.get("pnu");
   const serviceKey = process.env.VWORLD_API_KEY || process.env.PUBLIC_DATA_SERVICE_KEY;
-  const domain = process.env.VWORLD_API_DOMAIN || "http://127.0.0.1:4173";
+  const domain = vworldDomain();
 
   if (!pnu) return { ok: false, error: "missing_pnu" };
   if (!serviceKey) {
@@ -518,7 +521,7 @@ function formatDealMonth(value) {
 }
 
 async function fetchOnbid(params) {
-  const endpoint = process.env.ONBID_API_URL;
+  const endpoint = onbidEndpoint();
   const serviceKey = process.env.ONBID_SERVICE_KEY;
 
   if (!endpoint || !serviceKey) {
@@ -536,7 +539,7 @@ async function fetchOnbid(params) {
 }
 
 async function fetchOnbidProperties(params) {
-  const endpoint = process.env.ONBID_API_URL;
+  const endpoint = onbidEndpoint();
   const serviceKey = process.env.ONBID_SERVICE_KEY;
 
   if (!endpoint || !serviceKey) {
@@ -688,7 +691,7 @@ async function fetchCourtAuctionViewportProperties(params, bounds, { exactGeocod
 }
 
 async function fetchOnbidViewportProperties(params, bounds) {
-  const endpoint = process.env.ONBID_API_URL;
+  const endpoint = onbidEndpoint();
   const serviceKey = process.env.ONBID_SERVICE_KEY;
 
   if (!endpoint || !serviceKey) {
@@ -1469,7 +1472,8 @@ async function fetchVworldAddressItem({ key, query, category }) {
   apiUrl.searchParams.set("format", "json");
   apiUrl.searchParams.set("query", query);
   apiUrl.searchParams.set("key", key);
-  if (process.env.VWORLD_API_DOMAIN) apiUrl.searchParams.set("domain", process.env.VWORLD_API_DOMAIN);
+  const domain = vworldDomain();
+  if (domain) apiUrl.searchParams.set("domain", domain);
 
   try {
     const result = await fetchJson(apiUrl);
@@ -1490,7 +1494,7 @@ function simplifyAddressForSearch(value) {
 }
 
 function buildOnbidUrl(params) {
-  const endpoint = process.env.ONBID_API_URL;
+  const endpoint = onbidEndpoint();
   const serviceKey = process.env.ONBID_SERVICE_KEY;
   const keyParam = process.env.ONBID_SERVICE_KEY_PARAM || "serviceKey";
   const apiUrl = new URL(resolveOnbidEndpoint(endpoint));
@@ -1501,7 +1505,7 @@ function buildOnbidUrl(params) {
   apiUrl.searchParams.set("_type", params.get("_type") || "json");
   apiUrl.searchParams.set("format", params.get("format") || "json");
 
-  for (const [key, value] of parseQueryString(process.env.ONBID_DEFAULT_QUERY || "").entries()) {
+  for (const [key, value] of parseQueryString(process.env.ONBID_DEFAULT_QUERY || DEFAULT_ONBID_QUERY).entries()) {
     if (!apiUrl.searchParams.has(key)) apiUrl.searchParams.set(key, value);
   }
 
@@ -1525,6 +1529,16 @@ function parseQueryString(value) {
       if (key) params.set(decodeURIComponent(key), decodeURIComponent(rest.join("=") || ""));
     });
   return params;
+}
+
+function onbidEndpoint() {
+  return process.env.ONBID_API_URL || DEFAULT_ONBID_API_URL;
+}
+
+function vworldDomain() {
+  if (process.env.VWORLD_API_DOMAIN) return process.env.VWORLD_API_DOMAIN;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return process.env.VERCEL ? "" : "http://127.0.0.1:4173";
 }
 
 function resolveOnbidEndpoint(endpoint) {

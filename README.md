@@ -41,19 +41,12 @@ Vercel에는 꽁지맵 Node 서버와 정적 파일을 올립니다. 법원경�
 Vercel 환경변수:
 
 ```env
-COURT_AUCTION_USE_SNAPSHOT=1
-COURT_AUCTION_SNAPSHOT_PATH=data/court-auctions.snapshot.json
 VWORLD_API_KEY=발급받은_VWorld_API_KEY
-VWORLD_API_DOMAIN=https://배포된-도메인
 SEOUL_REAL_ESTATE_API_KEY=서울시_부동산_실거래가_API_KEY
-ONBID_API_URL=온비드_API_호출_URL
 ONBID_SERVICE_KEY=온비드_서비스키
-ONBID_SERVICE_KEY_PARAM=serviceKey
-ONBID_NUM_OF_ROWS=100
-ONBID_MAX_PAGES=1
 ```
 
-Vercel은 루트의 `server.mjs`를 Node 서버 진입점으로 사용합니다.
+법원경매는 Vercel에서 기본적으로 `data/court-auctions.snapshot.json` 스냅샷을 읽습니다. `ONBID_API_URL`, `COURT_AUCTION_SNAPSHOT_PATH`, `ONBID_DEFAULT_QUERY` 같은 공개 고정값은 코드 기본값을 사용합니다.
 
 ### 이후 배포: 실시간 법원 API 분리
 
@@ -61,7 +54,6 @@ Vercel은 루트의 `server.mjs`를 Node 서버 진입점으로 사용합니다.
 그 다음 Vercel 환경변수만 아래처럼 바꿉니다.
 
 ```env
-COURT_AUCTION_USE_SNAPSHOT=0
 COURT_AUCTION_API_URL=https://배포된-법원-api-도메인
 ```
 
@@ -114,12 +106,12 @@ VWorld에서 확인한 공식 API:
 - `GET /api/court-auctions`: 로컬 법원경매 크롤러 API(`/api/v1/auctions`)를 꽁지맵 물건 형식으로 정규화합니다. `.env`의 `COURT_AUCTION_API_URL`로 서버 주소를 바꿀 수 있습니다.
 - `GET /api/land-price?pnu=...&year=2025`: VWorld 개별공시지가속성조회 프록시입니다. `.env`의 `VWORLD_API_KEY`가 필요합니다.
 - `GET /api/seoul-deals?district=강서구&dong=화곡동&type=오피스텔`: 서울시 부동산 실거래가 정보 프록시입니다. `.env`의 `SEOUL_REAL_ESTATE_API_KEY`가 필요합니다.
-- `GET /api/onbid-properties`: 온비드 API 응답을 꽁지맵 매물 형식으로 정규화합니다. `.env`의 `ONBID_API_URL`, `ONBID_SERVICE_KEY`가 필요합니다.
-- `GET /api/onbid`: 온비드 API 프록시 자리입니다. `.env`의 `ONBID_API_URL`, `ONBID_SERVICE_KEY`가 필요합니다.
+- `GET /api/onbid-properties`: 온비드 API 응답을 꽁지맵 매물 형식으로 정규화합니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
+- `GET /api/onbid`: 온비드 API 프록시 자리입니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
 
 대법원경매는 공식 공개 API가 확인되지 않아 현재는 `data/court-auction.csv` 반입 방식으로 처리합니다. 무단 크롤링으로 붙이면 서비스 안정성과 약관 문제가 생길 수 있어 별도 데이터 공급원이나 수동 반입 경로를 먼저 씁니다.
 
-온비드 API는 신청한 세부 서비스마다 엔드포인트와 필드명이 달라질 수 있습니다. 서버는 `ONBID_API_URL` 응답에서 `response.body.items.item`, `items`, `data`, `row`, `list` 같은 목록 필드를 찾아 `주소`, `최저입찰가`, `감정가`, `면적`, `입찰일`, `좌표` 계열 필드를 최대한 정규화합니다. 지도 표시에는 `lat/lng` 또는 이에 준하는 좌표 필드가 필요합니다. 좌표가 없는 온비드 응답은 이후 주소 지오코딩 단계에서 보강합니다.
+온비드 기본 엔드포인트는 부동산 물건목록 조회서비스(`OnbidRlstListSrvc2`)입니다. 다른 온비드 서비스를 붙일 때만 `ONBID_API_URL`로 override합니다.
 
 키 설정:
 
@@ -133,10 +125,6 @@ cp .env.example .env
 VWORLD_API_KEY=발급받은_VWorld_API_KEY
 VWORLD_API_DOMAIN=http://127.0.0.1:4173
 COURT_AUCTION_API_URL=http://127.0.0.1:8000
-COURT_AUCTION_ACTIVE=true
-COURT_AUCTION_SORT=priority_desc
 SEOUL_REAL_ESTATE_API_KEY=서울시_부동산_실거래가_API_KEY
-ONBID_API_URL=온비드_API_호출_URL
 ONBID_SERVICE_KEY=온비드_서비스키
-ONBID_SERVICE_KEY_PARAM=serviceKey
 ```
