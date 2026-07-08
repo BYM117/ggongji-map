@@ -1,1 +1,3 @@
-import "./dev-server.mjs";
+import { startServer } from "./dev-server.mjs";
+
+startServer();

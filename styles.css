@@ -404,6 +404,10 @@ h1 {
   color: var(--red);
 }
 
+.neutral {
+  color: var(--muted);
+}
+
 .tag-row {
   flex-wrap: wrap;
   gap: 7px;
@@ -832,6 +836,24 @@ h1 {
   display: grid;
   gap: 8px;
   min-width: 0;
+}
+
+.load-more {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.load-more:hover {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.4);
 }
 
 .compact-card {

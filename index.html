@@ -11,7 +11,7 @@
       }
     </script>
     <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=62klpb47yg&submodules=geocoder&_cb=20260624"></script>
-    <link rel="stylesheet" href="./styles.css?v=20260624-cluster-source-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260708-viewport-perf-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -33,7 +33,7 @@
           </div>
           <div>
             <span id="metricAvgDiscount">0%</span>
-            <small>공시가 할인</small>
+            <small>공시기준 할인</small>
           </div>
           <div>
             <span id="metricTopScore">0</span>
@@ -51,7 +51,7 @@
             <select id="typeFilter"></select>
           </label>
           <label>
-            <span>최소 공시가 할인율</span>
+            <span>최소 공시기준 할인율</span>
             <output id="discountValue">전체</output>
             <input id="discountFilter" type="range" min="-100" max="70" step="5" value="-100" />
           </label>
@@ -68,7 +68,7 @@
             <span>정렬</span>
             <select id="sortBy">
               <option value="score">추천 점수순</option>
-              <option value="officialDiscount">공시가 할인율순</option>
+              <option value="officialDiscount">공시기준 할인율순</option>
               <option value="marketDiscount">실거래 할인율순</option>
               <option value="bidDate">입찰일 빠른순</option>
             </select>
@@ -122,7 +122,7 @@
             <strong class="official-value"></strong>
           </div>
           <div>
-            <span>공시가 대비</span>
+            <span>공시기준 대비</span>
             <strong class="official-discount"></strong>
           </div>
           <div>
@@ -134,6 +134,6 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260624-performance-1" defer></script>
+    <script src="./app.js?v=20260708-viewport-perf-1" defer></script>
   </body>
 </html>

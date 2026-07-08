@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ggongji",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["COURT_AUCTION_USE_SNAPSHOT=1", "node", "dev-server.mjs"],
+      "port": 4173
+    }
+  ]
+}

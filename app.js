@@ -1,6 +1,9 @@
 const LAND_PRICE_YEAR = new Date().getFullYear().toString();
 const DEFAULT_DISCOUNT_FILTER = -100;
 const REFERENCE_HYDRATION_LIMIT = 60;
+const LIST_RENDER_LIMIT = 50;
+const LIST_RENDER_STEP = 100;
+const VIEWPORT_FETCH_MARGIN = 0.35;
 const NAVER_MAP_SCRIPT_BASE = "https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=62klpb47yg&submodules=geocoder";
 const NAVER_MAP_MAX_RETRIES = 4;
 const PROVINCE_CENTERS = {
@@ -52,7 +55,8 @@ const state = {
   viewportRequestId: 0,
   viewportLoading: false,
   viewportQueued: false,
-  lastViewportKey: "",
+  loadedBounds: null,
+  listLimit: LIST_RENDER_LIMIT,
   naverRetryCount: 0,
   naverRetryTimer: null
 };
@@ -108,21 +112,24 @@ async function loadViewportProperties({ force = false } = {}) {
   const bounds = currentMapBounds();
   if (!bounds) return [];
 
-  const viewportKey = makeViewportKey(bounds);
-  if (!force && viewportKey === state.lastViewportKey) return properties;
+  // 이미 불러온(여유분 포함) 영역 안에서의 이동/줌은 재요청 없이 클라이언트 필터로 처리한다.
+  if (!force && state.loadedBounds && boundsContain(state.loadedBounds, bounds)) return properties;
 
+  // 화면보다 조금 넓게 받아 두면 이어지는 소규모 이동에서 재요청이 생략된다.
+  const fetchBounds = expandBounds(bounds, VIEWPORT_FETCH_MARGIN);
   const requestId = state.viewportRequestId + 1;
   state.viewportRequestId = requestId;
   state.viewportLoading = true;
-  state.lastViewportKey = viewportKey;
   setDataStatus("현재 지도 화면 경공매 조회 중", "live");
 
   try {
-    const payload = await fetchViewportSource(bounds, "court", { exactGeocode: "0" });
+    const payload = await fetchViewportSource(fetchBounds, "court", { exactGeocode: "0" });
     if (requestId !== state.viewportRequestId) return [];
 
     const incoming = uniquePropertyItems(payload.properties || []);
     properties = incoming;
+    state.loadedBounds = fetchBounds;
+    state.listLimit = LIST_RENDER_LIMIT;
     if (state.selectedId && !properties.some((item) => item.id === state.selectedId)) {
       state.selectedId = null;
       state.sidebarMode = "recommendations";
@@ -137,12 +144,13 @@ async function loadViewportProperties({ force = false } = {}) {
         .catch((error) => console.warn("Failed to hydrate viewport reference data", error));
     }
 
-    loadOnbidViewportProperties(bounds, requestId).catch((error) => console.warn("Failed to load viewport Onbid data", error));
+    loadOnbidViewportProperties(fetchBounds, requestId).catch((error) => console.warn("Failed to load viewport Onbid data", error));
 
     return incoming;
   } catch (error) {
     console.warn("Failed to load viewport properties", error);
     if (requestId === state.viewportRequestId) {
+      state.loadedBounds = null;
       properties = [];
       state.selectedId = null;
       state.sidebarMode = "recommendations";
@@ -226,7 +234,7 @@ function shouldHydrateReferenceData() {
 
 function referenceHydrationTargets(items) {
   return interleaveSourceItems(items)
-    .filter((item) => item?.pnu || item?.region?.startsWith("서울"))
+    .filter((item) => item?.pnu || pnuGeocodeEligible(item) || item?.region?.startsWith("서울"))
     .slice(0, REFERENCE_HYDRATION_LIMIT);
 }
 
@@ -250,42 +258,95 @@ function uniquePropertyItems(items) {
 }
 
 async function hydrateReferenceData(baseLabel, tone, targetItems = properties) {
-  const officialCount = await hydrateOfficialLandPrices(baseLabel, tone, targetItems);
-  const dealCount = await hydrateSeoulDeals(baseLabel, tone, targetItems);
+  const pnuCount = await hydratePnu(baseLabel, tone, targetItems);
+  // PNU가 새로 채워진 물건은 객체가 교체됐으므로 최신 객체로 이어서 공시가격을 조회한다.
+  const refreshed = pnuCount ? refreshTargets(targetItems) : targetItems;
+  const officialCount = await hydrateOfficialPrices(baseLabel, tone, refreshed);
+  const dealCount = await hydrateSeoulDeals(baseLabel, tone, refreshed);
   const applied = [];
 
-  if (officialCount) applied.push(`공시지가 ${officialCount}개`);
+  if (pnuCount) applied.push(`지번확인 ${pnuCount}개`);
+  if (officialCount) applied.push(`공시가격 ${officialCount}개`);
   if (dealCount) applied.push(`실거래 ${dealCount}개`);
 
   setDataStatus(applied.length ? `${baseLabel} · ${applied.join(" · ")} 반영` : `${baseLabel} ${properties.length}개`, tone);
 }
 
-async function hydrateOfficialLandPrices(baseLabel, tone, targetItems = properties) {
-  const candidates = targetItems.filter((item) => item.pnu && !item.officialLandPriceSource);
+function refreshTargets(items) {
+  const current = new Map(properties.map((item) => [item.id, item]));
+  return items.map((item) => current.get(item.id) || item);
+}
+
+// 지오코딩을 시도했지만 PNU를 못 찾은 물건은 다시 요청하지 않는다.
+const geocodeMisses = new Set();
+
+function pnuGeocodeEligible(item) {
+  if (!item || item.pnu) return false;
+  if (!(item.rawAddress || item.address)) return false;
+  return ["land", "commonHousing", "detachedHousing"].includes(officialPropertyKind(item));
+}
+
+async function hydratePnu(baseLabel, tone, targetItems = properties) {
+  const candidates = targetItems.filter((item) => pnuGeocodeEligible(item) && !geocodeMisses.has(item.id));
   if (!candidates.length) return 0;
 
-  setDataStatus(`${baseLabel} · 공시지가 조회 중`, tone);
+  setDataStatus(`${baseLabel} · 지번(PNU) 확인 중`, tone);
 
-  const results = await mapWithConcurrency(candidates, 8, async (item) => {
+  const results = await mapWithConcurrency(candidates, 6, async (item) => {
       try {
-        const url = `/api/land-price?pnu=${encodeURIComponent(item.pnu)}&year=${encodeURIComponent(LAND_PRICE_YEAR)}`;
+        const url = `/api/geocode?address=${encodeURIComponent(item.rawAddress || item.address)}`;
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) return null;
 
         const payload = await response.json();
-        if (!payload.ok || !payload.pricePerSqm) return null;
+        if (!payload.ok || !payload.found || !payload.pnu) {
+          if (payload.ok) geocodeMisses.add(item.id);
+          return null;
+        }
 
         return {
           ...item,
-          publicLandPricePerSqm: payload.pricePerSqm,
-          officialLandPriceSource: payload.source,
-          officialLandPriceYear: payload.year,
-          officialLandPricePublishedAt: payload.publishedAt,
-          officialLandPriceLocation: payload.landCodeName,
-          checks: uniqueValues([...(item.checks || []), "공시지가 확인"])
+          pnu: payload.pnu,
+          lat: payload.lat || item.lat,
+          lng: payload.lng || item.lng,
+          geocodeSource: "주소 좌표 확인",
+          checks: uniqueValues([...(item.checks || []).filter((check) => check !== "주소 기반 추정 좌표"), "주소 좌표 확인"])
         };
       } catch (error) {
-        console.warn("Failed to load official land price", item.pnu, error);
+        console.warn("Failed to geocode", item.address, error);
+        return null;
+      }
+    });
+
+  const updates = new Map(results.filter(Boolean).map((item) => [item.id, item]));
+  if (!updates.size) return 0;
+
+  properties = properties.map((item) => updates.get(item.id) || item);
+  render();
+  return updates.size;
+}
+
+// 조회했지만 매칭이 안 된 물건은 다시 요청하지 않는다. (viewport 갱신으로 객체가 바뀌어도 id 기준 유지)
+const officialPriceMisses = new Set();
+
+async function hydrateOfficialPrices(baseLabel, tone, targetItems = properties) {
+  const candidates = targetItems.filter((item) => officialPriceRequest(item) && !officialPriceMisses.has(item.id));
+  if (!candidates.length) return 0;
+
+  setDataStatus(`${baseLabel} · 공시가격 조회 중`, tone);
+
+  const results = await mapWithConcurrency(candidates, 8, async (item) => {
+      const request = officialPriceRequest(item);
+      try {
+        const response = await fetch(request.url, { cache: "no-store" });
+        if (!response.ok) return null;
+
+        const payload = await response.json();
+        const updated = request.apply(item, payload);
+        if (!updated && payload.ok) officialPriceMisses.add(item.id);
+        return updated;
+      } catch (error) {
+        console.warn("Failed to load official price", item.pnu, error);
         return null;
       }
     });
@@ -297,8 +358,61 @@ async function hydrateOfficialLandPrices(baseLabel, tone, targetItems = properti
 
   properties = properties.map((item) => updates.get(item.id) || item);
   render();
-  setDataStatus(`${baseLabel} · 공시지가 ${updates.size}개 반영`, tone);
+  setDataStatus(`${baseLabel} · 공시가격 ${updates.size}개 반영`, tone);
   return updates.size;
+}
+
+// 물건 유형에 맞는 공시가격 API 요청을 만든다. 대상이 아니거나 이미 채워졌으면 null.
+function officialPriceRequest(item) {
+  if (!item.pnu) return null;
+  const kind = officialPropertyKind(item);
+
+  if (kind === "land") {
+    if (item.officialLandPriceSource) return null;
+    return {
+      url: `/api/land-price?pnu=${encodeURIComponent(item.pnu)}&year=${encodeURIComponent(LAND_PRICE_YEAR)}`,
+      apply: (target, payload) => {
+        if (!payload.ok || !payload.pricePerSqm) return null;
+        return {
+          ...target,
+          publicLandPricePerSqm: payload.pricePerSqm,
+          officialLandPriceSource: payload.source,
+          officialLandPriceYear: payload.year,
+          officialLandPricePublishedAt: payload.publishedAt,
+          officialLandPriceLocation: payload.landCodeName,
+          checks: uniqueValues([...(target.checks || []), "토지공시지가 확인"])
+        };
+      }
+    };
+  }
+
+  if (kind === "commonHousing" || kind === "detachedHousing") {
+    if (numberFromValue(item.publicHousingPrice) > 0) return null;
+    if (item.publicHousingPriceSource) return null;
+    const params = new URLSearchParams({
+      pnu: item.pnu,
+      year: LAND_PRICE_YEAR,
+      kind: kind === "commonHousing" ? "apart" : "indvd",
+      address: item.rawAddress || item.address || ""
+    });
+    if (numberFromValue(item.buildingArea) > 0) params.set("area", String(item.buildingArea));
+    return {
+      url: `/api/housing-price?${params.toString()}`,
+      apply: (target, payload) => {
+        if (!payload.ok || !(payload.price > 0)) return null;
+        return {
+          ...target,
+          publicHousingPrice: payload.price,
+          publicHousingPriceSource: payload.source,
+          publicHousingPriceYear: payload.year,
+          publicHousingPriceUnit: payload.matched || null,
+          checks: uniqueValues([...(target.checks || []), `${payload.source} 확인`])
+        };
+      }
+    };
+  }
+
+  return null;
 }
 
 async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
@@ -385,7 +499,7 @@ function populateFilters() {
 }
 
 function option(value, label) {
-  return `<option value="${value}">${label}</option>`;
+  return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
 }
 
 function bindEvents() {
@@ -402,6 +516,7 @@ function bindEvents() {
 
 function updateFilter(key, value) {
   state.filters[key] = value;
+  state.listLimit = LIST_RENDER_LIMIT;
   if (key === "discount") {
     dom.discountValue.textContent = formatDiscountFilter(value);
   }
@@ -419,6 +534,7 @@ function resetFilters() {
   };
   state.selectedId = null;
   state.sidebarMode = "recommendations";
+  state.listLimit = LIST_RENDER_LIMIT;
   dom.regionFilter.value = "all";
   dom.typeFilter.value = "all";
   dom.riskFilter.value = "all";
@@ -442,31 +558,140 @@ function render() {
 
 function getVisibleProperties(items) {
   const filtered = items.filter(matchesFilters);
-  const viewportItems = state.mapBoundsOnly && state.naverLoaded && state.map
-    ? filtered.filter(isInsideMapBounds)
+  // 경계값은 한 번만 구해서 물건마다 숫자 비교만 한다. (물건당 SDK 호출 금지)
+  const bounds = state.mapBoundsOnly && state.naverLoaded && state.map ? currentMapBounds() : null;
+  const viewportItems = bounds
+    ? filtered.filter(
+        (item) =>
+          item.lat >= bounds.swLat && item.lat <= bounds.neLat && item.lng >= bounds.swLng && item.lng <= bounds.neLng
+      )
     : filtered;
   return sortProperties(viewportItems);
 }
 
+// 물건 객체가 교체되지 않는 한 점수 계산을 반복하지 않는다.
+const enrichCache = new WeakMap();
+
 function enrichProperty(item) {
-  const officialValue = item.publicHousingPrice || item.publicLandPricePerSqm * item.landArea;
+  const cached = enrichCache.get(item);
+  if (cached) return cached;
+
+  const officialBasis = resolveOfficialBasis(item);
+  const officialValue = officialBasis.value;
   const medianDeal = median(item.nearbyDeals.map((deal) => deal.pricePerSqm));
   const marketValue = medianDeal * comparableArea(item);
-  const officialDiscount = ratioDiscount(item.minBid, officialValue);
+  const officialDiscount = officialBasis.comparable ? ratioDiscount(item.minBid, officialValue) : 0;
   const marketDiscount = ratioDiscount(item.minBid, marketValue);
   const failBonus = Math.min(item.failCount * 4, 12);
   const riskPenalty = riskOrder[item.risk] * 8;
-  const score = Math.min(100, Math.max(0, Math.round(officialDiscount * 55 + marketDiscount * 35 + failBonus - riskPenalty + 30)));
+  const officialWeight = officialBasis.comparable ? 55 : 0;
+  const marketWeight = officialBasis.comparable ? 35 : 55;
+  const basisPenalty = officialBasis.comparable ? 0 : 8;
+  const score = Math.min(
+    100,
+    Math.max(0, Math.round(officialDiscount * officialWeight + marketDiscount * marketWeight + failBonus - riskPenalty - basisPenalty + 30))
+  );
 
-  return {
+  const enriched = {
     ...item,
     officialValue,
+    officialBasis,
+    officialBasisLabel: officialBasis.label,
+    officialBasisShortLabel: officialBasis.shortLabel,
+    officialComparable: officialBasis.comparable,
+    officialReferenceValue: officialBasis.referenceValue,
+    officialReferenceLabel: officialBasis.referenceLabel,
+    officialMissingLabel: officialBasis.missingLabel,
     marketValue,
     medianDeal,
     officialDiscount,
     marketDiscount,
     score
   };
+  enrichCache.set(item, enriched);
+  return enriched;
+}
+
+function resolveOfficialBasis(item) {
+  const propertyKind = officialPropertyKind(item);
+  const housingPrice = numberFromValue(item.publicHousingPrice);
+  const landReferenceValue = landOfficialValue(item);
+
+  if (housingPrice > 0) {
+    return {
+      kind: propertyKind,
+      label: propertyKind === "detachedHousing" ? "개별주택가격" : "공동주택가격",
+      shortLabel: propertyKind === "detachedHousing" ? "주택공시가" : "공동주택가격",
+      value: housingPrice,
+      comparable: true,
+      referenceValue: landReferenceValue,
+      referenceLabel: landReferenceValue ? "토지공시지가 참고" : ""
+    };
+  }
+
+  if (propertyKind === "land") {
+    return {
+      kind: "land",
+      label: "개별공시지가 × 토지면적",
+      shortLabel: "토지공시가",
+      value: landReferenceValue,
+      comparable: landReferenceValue > 0,
+      referenceValue: 0,
+      referenceLabel: "",
+      missingLabel: "PNU/토지면적 필요"
+    };
+  }
+
+  if (propertyKind === "commonHousing") {
+    return officialMissingBasis("공동주택가격 필요", "공동주택가격 필요", landReferenceValue);
+  }
+
+  if (propertyKind === "officetel") {
+    return officialMissingBasis("오피스텔 기준시가 필요", "기준시가 필요", landReferenceValue);
+  }
+
+  if (propertyKind === "detachedHousing") {
+    return officialMissingBasis("개별주택가격 필요", "주택공시가 필요", landReferenceValue);
+  }
+
+  return officialMissingBasis("건물가치 포함 기준 필요", "기준가 필요", landReferenceValue);
+}
+
+function officialMissingBasis(label, shortLabel, referenceValue) {
+  return {
+    kind: "missing",
+    label,
+    shortLabel,
+    value: 0,
+    comparable: false,
+    referenceValue,
+    referenceLabel: referenceValue ? "토지공시지가 참고" : "",
+    missingLabel: label
+  };
+}
+
+function landOfficialValue(item) {
+  const pricePerSqm = numberFromValue(item.publicLandPricePerSqm);
+  const area = numberFromValue(item.landArea);
+  return pricePerSqm > 0 && area > 0 ? pricePerSqm * area : 0;
+}
+
+function officialPropertyKind(item) {
+  const text = `${item.type || ""} ${item.title || ""} ${item.category || ""} ${item.zoning || ""} ${item.address || ""}`;
+
+  if (/(아파트|다세대|연립|공동주택|빌라)/.test(text)) return "commonHousing";
+  if (/오피스텔/.test(text)) return "officetel";
+  if (/(단독|다가구|주택)/.test(text)) return "detachedHousing";
+  if (item.type === "토지" || /(임야|전|답|대지|잡종지|과수원|목장용지|공장용지|도로|하천|구거|체육용지)/.test(text)) {
+    if (!/(건물|아파트|다세대|연립|빌라|주택|오피스텔|상가|공장|창고|근린)/.test(text)) return "land";
+    if (item.type === "토지") return "land";
+  }
+  return "mixed";
+}
+
+function numberFromValue(value) {
+  const number = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(number) ? number : 0;
 }
 
 function comparableArea(item) {
@@ -491,23 +716,30 @@ function median(values) {
 
 function matchesFilters(item) {
   const keyword = state.filters.keyword.toLowerCase();
-  const text = `${item.title} ${item.address} ${item.caseNo} ${item.memo}`.toLowerCase();
+  let matchesKeyword = true;
+  if (keyword) {
+    const text = item._searchText || (item._searchText = `${item.title} ${item.address} ${item.caseNo} ${item.memo}`.toLowerCase());
+    matchesKeyword = text.includes(keyword);
+  }
   const riskLimit = state.filters.risk === "all" ? Infinity : riskOrder[state.filters.risk];
   const matchesDiscount =
-    state.filters.discount <= DEFAULT_DISCOUNT_FILTER || item.officialDiscount * 100 >= state.filters.discount;
+    state.filters.discount <= DEFAULT_DISCOUNT_FILTER || (item.officialComparable && item.officialDiscount * 100 >= state.filters.discount);
 
   return (
     (state.filters.region === "all" || item.region === state.filters.region) &&
     (state.filters.type === "all" || item.type === state.filters.type) &&
     riskOrder[item.risk] <= riskLimit &&
     matchesDiscount &&
-    (!keyword || text.includes(keyword))
+    matchesKeyword
   );
 }
 
 function sortProperties(items) {
   return [...items].sort((a, b) => {
-    if (state.filters.sortBy === "officialDiscount") return b.officialDiscount - a.officialDiscount;
+    if (state.filters.sortBy === "officialDiscount") {
+      if (a.officialComparable !== b.officialComparable) return a.officialComparable ? -1 : 1;
+      return b.officialDiscount - a.officialDiscount;
+    }
     if (state.filters.sortBy === "marketDiscount") return b.marketDiscount - a.marketDiscount;
     if (state.filters.sortBy === "bidDate") return new Date(a.bidDate) - new Date(b.bidDate);
     return b.score - a.score;
@@ -515,12 +747,13 @@ function sortProperties(items) {
 }
 
 function renderMetrics(items) {
-  const avgDiscount = items.length
-    ? items.reduce((sum, item) => sum + item.officialDiscount, 0) / items.length
+  const comparableItems = items.filter((item) => item.officialComparable);
+  const avgDiscount = comparableItems.length
+    ? comparableItems.reduce((sum, item) => sum + item.officialDiscount, 0) / comparableItems.length
     : 0;
   const topScore = items.length ? Math.max(...items.map((item) => item.score)) : 0;
   dom.metricCount.textContent = String(items.length);
-  dom.metricAvgDiscount.textContent = formatPercent(avgDiscount);
+  dom.metricAvgDiscount.textContent = comparableItems.length ? formatPercent(avgDiscount) : "-";
   dom.metricTopScore.textContent = String(topScore);
 }
 
@@ -528,7 +761,8 @@ function renderRecommendationPanel(items) {
   dom.list.innerHTML = "";
 
   if (state.sidebarMode === "detail") {
-    const selected = properties.map(enrichProperty).find((item) => item.id === state.selectedId) || items[0];
+    const selectedRaw = properties.find((item) => item.id === state.selectedId);
+    const selected = (selectedRaw && enrichProperty(selectedRaw)) || items[0];
     if (!selected) {
       state.sidebarMode = "recommendations";
     } else {
@@ -553,7 +787,8 @@ function renderRecommendationPanel(items) {
   }
 
   const fragment = document.createDocumentFragment();
-  interleaveSourceItems(items).forEach((item) => {
+  const ordered = interleaveSourceItems(items);
+  ordered.slice(0, state.listLimit).forEach((item) => {
     const node = dom.cardTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.id = item.id;
     node.classList.add(`source-${sourceKind(item)}`);
@@ -565,9 +800,9 @@ function renderRecommendationPanel(items) {
     node.querySelector(".score-pill").textContent = `${item.score}점`;
     node.querySelector(".address").textContent = item.address;
     node.querySelector(".min-bid").textContent = formatWon(item.minBid);
-    node.querySelector(".official-value").textContent = formatWon(item.officialValue);
-    node.querySelector(".official-discount").textContent = formatSignedPercent(item.officialDiscount);
-    node.querySelector(".official-discount").className = `official-discount ${item.officialDiscount >= 0 ? "positive" : "negative"}`;
+    node.querySelector(".official-value").textContent = formatOfficialValue(item);
+    node.querySelector(".official-discount").textContent = formatOfficialDiscount(item);
+    node.querySelector(".official-discount").className = `official-discount ${officialDiscountTone(item)}`;
     node.querySelector(".market-discount").textContent = formatSignedPercent(item.marketDiscount);
     node.querySelector(".market-discount").className = `market-discount ${item.marketDiscount >= 0 ? "positive" : "negative"}`;
     node.querySelector(".tag-row").innerHTML = renderTags(item);
@@ -575,6 +810,21 @@ function renderRecommendationPanel(items) {
     fragment.append(node);
   });
   dom.list.append(fragment);
+  appendLoadMoreButton(dom.list, ordered.length);
+}
+
+function appendLoadMoreButton(container, totalCount) {
+  if (totalCount <= state.listLimit) return;
+  const remaining = totalCount - state.listLimit;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "load-more";
+  button.textContent = `더 보기 (${remaining.toLocaleString("ko-KR")}개 남음)`;
+  button.addEventListener("click", () => {
+    state.listLimit += LIST_RENDER_STEP;
+    render();
+  });
+  container.append(button);
 }
 
 function renderAuctionPanel(items) {
@@ -595,18 +845,20 @@ function renderAuctionPanel(items) {
 
   const list = document.createElement("div");
   list.className = "compact-list";
-  interleaveSourceItems(items).forEach((item) => {
+  const ordered = interleaveSourceItems(items);
+  ordered.slice(0, state.listLimit).forEach((item) => {
     const node = document.createElement("button");
     node.type = "button";
     node.className = `compact-card source-${sourceKind(item)} ${item.id === state.selectedId ? "active" : ""}`;
     node.innerHTML = `
-      <span class="case-no">${sourceBadge(item)}${item.caseNo}</span>
-      <strong>${item.title}</strong>
-      <span>${formatWon(item.minBid)} · ${formatSignedPercent(item.officialDiscount)} · ${item.type}</span>
+      <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${formatWon(item.minBid)} · ${formatOfficialDiscount(item)} · ${escapeHtml(item.type)}</span>
     `;
     node.addEventListener("click", () => openPropertyDetail(item.id));
     list.append(node);
   });
+  appendLoadMoreButton(list, ordered.length);
   dom.detail.append(list);
 }
 
@@ -652,13 +904,16 @@ function renderTags(item) {
     { label: `위험 ${item.risk}`, tone: item.risk === "낮음" ? "good" : item.risk === "높음" ? "hot" : "" },
     { label: item.zoning, tone: "" }
   ];
-  if (item.officialLandPriceSource) {
-    tags.push({ label: "공시지가 확인", tone: "good" });
+  if (item.officialLandPriceSource || item.publicHousingPriceSource) {
+    tags.push({ label: item.officialComparable ? `${item.officialBasisShortLabel} 기준` : "토지공시 참고", tone: item.officialComparable ? "good" : "info" });
+  }
+  if (!item.officialComparable) {
+    tags.push({ label: item.officialMissingLabel || "공시기준 필요", tone: "hot" });
   }
   if (item.marketDealSource) {
     tags.push({ label: "서울 실거래가", tone: "info" });
   }
-  return tags.map((tag) => `<span class="tag ${tag.tone}">${tag.label}</span>`).join("");
+  return tags.map((tag) => `<span class="tag ${tag.tone}">${escapeHtml(tag.label)}</span>`).join("");
 }
 
 function selectProperty(id) {
@@ -874,29 +1129,24 @@ function currentMapBounds() {
   };
 }
 
-function makeViewportKey(bounds) {
-  const zoom = state.map?.getZoom?.() || 0;
-  const precision = zoom >= 15 ? 3 : zoom >= 12 ? 2 : 1;
-  return [bounds.swLat, bounds.swLng, bounds.neLat, bounds.neLng]
-    .map((value) => Number(value).toFixed(precision))
-    .join(":");
+function expandBounds(bounds, ratio) {
+  const latPad = (bounds.neLat - bounds.swLat) * ratio;
+  const lngPad = (bounds.neLng - bounds.swLng) * ratio;
+  return {
+    swLat: bounds.swLat - latPad,
+    swLng: bounds.swLng - lngPad,
+    neLat: bounds.neLat + latPad,
+    neLng: bounds.neLng + lngPad
+  };
 }
 
-function isInsideMapBounds(item) {
-  if (!state.map || !window.naver || !window.naver.maps) return true;
-  const bounds = state.map.getBounds();
-  if (!bounds) return true;
-
-  const point = new naver.maps.LatLng(item.lat, item.lng);
-  if (typeof bounds.hasLatLng === "function") return bounds.hasLatLng(point);
-
-  const sw = bounds.getSW?.();
-  const ne = bounds.getNE?.();
-  if (!sw || !ne) return true;
-
-  const lat = item.lat;
-  const lng = item.lng;
-  return lat >= sw.lat() && lat <= ne.lat() && lng >= sw.lng() && lng <= ne.lng();
+function boundsContain(outer, inner) {
+  return (
+    inner.swLat >= outer.swLat &&
+    inner.swLng >= outer.swLng &&
+    inner.neLat <= outer.neLat &&
+    inner.neLng <= outer.neLng
+  );
 }
 
 function forceNaverRepaint(selected) {
@@ -925,19 +1175,31 @@ function renderNaverMarkers(items) {
   if (!clusters.length) return;
 
   clusters.forEach((cluster) => {
+    const icon = markerIcon(cluster);
     let marker = state.markers.get(cluster.key);
     if (!marker) {
       marker = new naver.maps.Marker({
         position: new naver.maps.LatLng(cluster.lat, cluster.lng),
         map: state.map,
         title: cluster.title,
-        icon: markerIcon(cluster)
+        icon
       });
-      naver.maps.Event.addListener(marker, "click", () => handleMarkerClick(cluster));
+      // 클러스터 구성은 렌더마다 바뀔 수 있어 최신 상태를 marker에 실어 클릭 시 참조한다.
+      naver.maps.Event.addListener(marker, "click", () => handleMarkerClick(marker.__cluster));
       state.markers.set(cluster.key, marker);
+    } else {
+      // 바뀐 것만 갱신한다. setIcon은 DOM 재생성이라 가장 비싸다.
+      if (marker.__lat !== cluster.lat || marker.__lng !== cluster.lng) {
+        marker.setPosition(new naver.maps.LatLng(cluster.lat, cluster.lng));
+      }
+      if (marker.__iconHtml !== icon.content) {
+        marker.setIcon(icon);
+      }
     }
-    marker.setPosition(new naver.maps.LatLng(cluster.lat, cluster.lng));
-    marker.setIcon(markerIcon(cluster));
+    marker.__cluster = cluster;
+    marker.__lat = cluster.lat;
+    marker.__lng = cluster.lng;
+    marker.__iconHtml = icon.content;
   });
 }
 
@@ -958,7 +1220,7 @@ function makeClusters(items) {
     buckets.set(key, bucket);
   });
 
-  return [...buckets.values()].map((bucket) => {
+  return [...buckets.entries()].map(([cellKey, bucket]) => {
     if (bucket.length === 1) {
       const item = bucket[0];
       return {
@@ -975,7 +1237,8 @@ function makeClusters(items) {
     const top = sortProperties(bucket)[0];
     return {
       ...top,
-      key: `cluster:${bucket.map((item) => item.id).sort().join("|")}`,
+      // 셀 좌표 기반 안정 키 — 데이터가 갱신돼도 같은 셀이면 마커를 재사용한다.
+      key: `cell:${cellSize}:${cellKey}`,
       count: bucket.length,
       items: bucket,
       lat,
@@ -1162,8 +1425,8 @@ function drawParcelBoundary(item, featureCollection) {
   const center = bounds.getCenter();
   const content = `
     <div class="parcel-label">
-      <strong>${item.title}</strong>
-      <span>${formatWon(item.minBid)} · ${formatSignedPercent(item.officialDiscount)}</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${formatWon(item.minBid)} · ${formatOfficialDiscount(item)}</span>
     </div>
   `;
 
@@ -1228,7 +1491,7 @@ function markerIcon(item) {
     ? `cluster-marker source-${kind}`
     : `pinpoint-marker source-${kind} ${item.id === state.selectedId ? "active" : ""}`;
   const content = isCluster
-    ? `<div class="${className}" style="width:${size}px;height:${size}px;background:${color};"><strong>${label}</strong>${item.groupLabel ? `<span>${item.groupLabel}</span>` : ""}</div>`
+    ? `<div class="${className}" style="width:${size}px;height:${size}px;background:${color};"><strong>${label}</strong>${item.groupLabel ? `<span>${escapeHtml(item.groupLabel)}</span>` : ""}</div>`
     : `<div class="${className}" style="--pin-color:${color};"><span class="pin-reticle"></span><b>${label}</b><em>${sourceShortLabel(item)}</em></div>`;
 
   return {
@@ -1281,30 +1544,33 @@ function renderInlineDetail(item) {
   dom.list.innerHTML = `
     <div class="detail-nav">
       <button class="back-button" type="button" id="backToRecommendations">‹ 리스트</button>
-      <span class="case-no">${item.caseNo}</span>
+      <span class="case-no">${escapeHtml(item.caseNo)}</span>
     </div>
     <section class="detail-header">
       <div class="risk-row">
-        <span class="case-no">${sourceBadge(item)}${item.caseNo}</span>
-        <span class="risk-badge ${riskClass[item.risk]}">위험 ${item.risk}</span>
+        <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
+        <span class="risk-badge ${riskClass[item.risk] || ""}">위험 ${escapeHtml(item.risk)}</span>
       </div>
-      <h2>${item.title}</h2>
-      <p class="detail-meta">${item.address}<br />입찰일 ${formatDate(item.bidDate)} · ${item.failCount}회 유찰 · ${item.zoning}</p>
+      <h2>${escapeHtml(item.title)}</h2>
+      <p class="detail-meta">${escapeHtml(item.address)}<br />입찰일 ${formatDate(item.bidDate)} · ${Number(item.failCount) || 0}회 유찰 · ${escapeHtml(item.zoning)}</p>
     </section>
     <section class="detail-grid" aria-label="상세 수치">
       ${detailStat("추천 점수", `${item.score}점`)}
       ${detailStat("최저입찰가", formatWon(item.minBid))}
-      ${detailStat("공시기준가", formatWon(item.officialValue))}
-      ${detailStat("공시가 대비", formatSignedPercent(item.officialDiscount), item.officialDiscount >= 0 ? "positive" : "negative")}
+      ${detailStat("공시기준", item.officialBasisLabel)}
+      ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral")}
+      ${detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item))}
       ${detailStat("실거래 추정가", formatWon(item.marketValue))}
       ${detailStat("실거래 대비", formatSignedPercent(item.marketDiscount), item.marketDiscount >= 0 ? "positive" : "negative")}
-      ${item.officialLandPriceSource ? detailStat("공시지가 기준", `${item.officialLandPriceYear}년`) : ""}
+      ${item.officialReferenceValue ? detailStat(item.officialReferenceLabel || "토지공시지가 참고", formatWon(item.officialReferenceValue), "neutral") : ""}
+      ${item.officialLandPriceSource ? detailStat("토지공시지가", `${item.officialLandPriceYear}년`) : ""}
+      ${item.publicHousingPriceSource ? detailStat(item.publicHousingPriceSource, `${item.publicHousingPriceYear}년${item.publicHousingPriceUnit?.dong ? ` · ${item.publicHousingPriceUnit.dong}동` : ""}${item.publicHousingPriceUnit?.ho ? ` ${item.publicHousingPriceUnit.ho}호` : ""}`) : ""}
       ${item.marketDealSource ? detailStat("실거래 출처", item.marketDealScope || "서울시") : ""}
     </section>
     <section class="detail-section">
       <h3>판단 메모</h3>
-      <p class="address">${item.memo}</p>
-      <div class="tag-row">${item.checks.map(displayCheckLabel).map((check) => `<span class="tag">${check}</span>`).join("")}</div>
+      <p class="address">${escapeHtml(item.memo)}</p>
+      <div class="tag-row">${item.checks.map(displayCheckLabel).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
     </section>
     <section class="detail-section">
       <h3>인근 실거래 참고</h3>
@@ -1316,8 +1582,8 @@ function renderInlineDetail(item) {
                   (deal) => `
             <div class="deal-row">
               <div>
-                <strong>${deal.label}</strong><br />
-                <span class="case-no">${deal.date}${formatDealMeta(deal)}</span>
+                <strong>${escapeHtml(deal.label)}</strong><br />
+                <span class="case-no">${escapeHtml(deal.date)}${formatDealMeta(deal)}</span>
               </div>
               <strong>${formatWon(deal.pricePerSqm)}/㎡</strong>
             </div>`
@@ -1329,7 +1595,7 @@ function renderInlineDetail(item) {
     </section>
     <div class="source-row">
       <span>데이터 출처</span>
-      <strong>${item.source}</strong>
+      <strong>${escapeHtml(item.source)}</strong>
     </div>
   `;
 
@@ -1339,7 +1605,7 @@ function renderInlineDetail(item) {
 function formatDealMeta(deal) {
   const parts = [];
   if (deal.distanceLabel) {
-    parts.push(deal.distanceLabel);
+    parts.push(escapeHtml(deal.distanceLabel));
   } else if (Number(deal.distance) > 0) {
     parts.push(`${deal.distance}m`);
   }
@@ -1350,8 +1616,8 @@ function formatDealMeta(deal) {
 function detailStat(label, value, tone = "") {
   return `
     <div class="detail-stat">
-      <span>${label}</span>
-      <strong class="${tone}">${value}</strong>
+      <span>${escapeHtml(label)}</span>
+      <strong class="${tone}">${escapeHtml(value)}</strong>
     </div>
   `;
 }
@@ -1360,20 +1626,31 @@ function displayCheckLabel(value) {
   return String(value || "")
     .replace(/VWorld\s*/gi, "")
     .replace(/주소검색/g, "주소 좌표 확인")
-    .replace(/공시지가속성조회/g, "공시지가 확인")
+    .replace(/공시지가속성조회/g, "토지공시지가 확인")
+    .replace(/공시지가 확인/g, "토지공시지가 확인")
     .trim();
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function formatWon(value) {
-  if (Math.abs(value) >= 100000000) {
-    const eok = value / 100000000;
+  const amount = Number(value) || 0;
+  if (Math.abs(amount) >= 100000000) {
+    const eok = amount / 100000000;
     return `${stripZero(eok)}억`;
   }
-  if (Math.abs(value) >= 10000) {
-    const man = value / 10000;
+  if (Math.abs(amount) >= 10000) {
+    const man = amount / 10000;
     return `${Math.round(man).toLocaleString("ko-KR")}만`;
   }
-  return `${Math.round(value).toLocaleString("ko-KR")}원`;
+  return `${Math.round(amount).toLocaleString("ko-KR")}원`;
 }
 
 function stripZero(value) {
@@ -1394,6 +1671,19 @@ function formatDiscountFilter(value) {
 function formatSignedPercent(value) {
   const sign = value > 0 ? "-" : "+";
   return `${sign}${Math.abs(Math.round(value * 100))}%`;
+}
+
+function formatOfficialValue(item) {
+  return item.officialComparable ? formatWon(item.officialValue) : "기준 필요";
+}
+
+function formatOfficialDiscount(item) {
+  return item.officialComparable ? formatSignedPercent(item.officialDiscount) : "비교 보류";
+}
+
+function officialDiscountTone(item) {
+  if (!item.officialComparable) return "neutral";
+  return item.officialDiscount >= 0 ? "positive" : "negative";
 }
 
 function formatDate(value) {

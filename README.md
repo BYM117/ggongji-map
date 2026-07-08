@@ -2,6 +2,21 @@
 
 공시지가와 최저입찰가를 비교해 경공매 물건을 선별하고, 주변 실거래 근거를 함께 보는 초기 MVP입니다.
 
+## 구조
+
+- `index.html`, `app.js`, `styles.css`: 프론트엔드 (외부 API 텍스트는 전부 `escapeHtml`로 이스케이프)
+- `dev-server.mjs`: HTTP 서버 + API 라우팅 + 정적 파일 서빙 (숨김 파일과 허용 확장자 밖 파일은 서빙하지 않음)
+- `lib/util.mjs`: 숫자/CSV/쿼리 파싱, 동시성, 상한이 있는 캐시 헬퍼
+- `lib/geo.mjs`: 좌표 추정 테이블(시/도, 시/군/구, 느슨한 매칭)과 뷰포트 경계 계산 — 좌표 테이블은 이 파일에서만 관리
+- `lib/normalize.mjs`: 외부 데이터 → 지도용 물건 정규화
+- `lib/vworld.mjs`: 개별공시지가, 필지 경계, 주소 지오코딩
+- `lib/seoul.mjs`: 서울시 실거래가
+- `lib/onbid.mjs`: 온비드 OpenAPI
+- `lib/court.mjs`: 법원경매 크롤러 API + 스냅샷
+- `api/[...path].mjs`: Vercel 서버리스 진입점 (dev-server의 `handleApiRequest` 재사용)
+
+`npm run dev`와 `npm start` 모두 같은 서버를 띄웁니다.
+
 ## 실행
 
 ```bash
@@ -106,6 +121,7 @@ VWorld에서 확인한 공식 API:
 - `GET /api/properties`: `data/properties.json`, `data/onbid.csv`, `data/court-auction.csv`를 읽어 지도용 물건으로 정규화합니다.
 - `GET /api/court-auctions`: 로컬 법원경매 크롤러 API(`/api/v1/auctions`)를 꽁지맵 물건 형식으로 정규화합니다. `.env`의 `COURT_AUCTION_API_URL`로 서버 주소를 바꿀 수 있습니다.
 - `GET /api/land-price?pnu=...&year=2025`: VWorld 개별공시지가속성조회 프록시입니다. `.env`의 `VWORLD_API_KEY`가 필요합니다.
+- `GET /api/housing-price?pnu=...&kind=apart|indvd&year=2026&address=...`: VWorld 공동주택가격(`getApartHousingPriceAttr`)·개별주택가격(`getIndvdHousingPriceAttr`) 프록시입니다. 같은 `VWORLD_API_KEY`를 씁니다. `kind=apart`는 주소에서 동/호를 파싱해 해당 세대의 공시가격 총액을 찾고(`dong`/`ho`/`area` 파라미터로 직접 지정 가능), `kind=indvd`는 PNU당 1건인 개별주택가격을 반환합니다.
 - `GET /api/seoul-deals?district=강서구&dong=화곡동&type=오피스텔`: 서울시 부동산 실거래가 정보 프록시입니다. `.env`의 `SEOUL_REAL_ESTATE_API_KEY`가 필요합니다.
 - `GET /api/onbid-properties`: 온비드 API 응답을 꽁지맵 매물 형식으로 정규화합니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
 - `GET /api/onbid`: 온비드 API 프록시 자리입니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
