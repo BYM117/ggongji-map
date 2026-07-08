@@ -2,7 +2,7 @@
   "functions": {
     "api/[...path].mjs": {
       "maxDuration": 30,
-      "includeFiles": "data/court-auctions.snapshot.json"
+      "includeFiles": "data/**"
     }
   }
 }

@@ -27,6 +27,19 @@ real-1,온비드,2026-001,샘플 토지,토지,경기 파주,경기도 파주시
 - `landArea`
 - `pnu`
 
+## 오피스텔·상가 기준시가 인덱스 (`officetel-prices/`)
+
+`data/officetel-prices/{시도코드}.json.gz`는 국세청 상업용건물·오피스텔 기준시가를 시도별로 나눠 gzip으로 저장한 조회 인덱스입니다. `/api/officetel-price`가 PNU로 필지를, 주소의 층/호로 세대를 특정해 기준시가 총액을 계산합니다.
+
+갱신(연 1회, 국세청 고시 후):
+
+1. [공공데이터포털 국세청 기준시가](https://www.data.go.kr/data/3036455/fileData.do)에서 최신 XLSX를 내려받습니다.
+2. `pip install openpyxl` 후 아래를 실행하면 `data/officetel-prices/`가 다시 만들어집니다.
+
+```bash
+python3 scripts/build-officetel-index.py <내려받은.xlsx>
+```
+
 대법원경매는 공식 공개 API가 없으므로 우선 CSV/JSON 반입으로 처리합니다. 온비드는 API 문서와 인증키가 준비되면 `.env`에 `ONBID_API_URL`, `ONBID_SERVICE_KEY`를 넣어 서버 프록시에서 연결합니다.
 
 온비드 OpenAPI 연동:

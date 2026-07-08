@@ -283,7 +283,7 @@ const geocodeMisses = new Set();
 function pnuGeocodeEligible(item) {
   if (!item || item.pnu) return false;
   if (!(item.rawAddress || item.address)) return false;
-  return ["land", "commonHousing", "detachedHousing"].includes(officialPropertyKind(item));
+  return ["land", "commonHousing", "detachedHousing", "officetel"].includes(officialPropertyKind(item));
 }
 
 async function hydratePnu(baseLabel, tone, targetItems = properties) {
@@ -406,6 +406,28 @@ function officialPriceRequest(item) {
           publicHousingPriceSource: payload.source,
           publicHousingPriceYear: payload.year,
           publicHousingPriceUnit: payload.matched || null,
+          checks: uniqueValues([...(target.checks || []), `${payload.source} 확인`])
+        };
+      }
+    };
+  }
+
+  if (kind === "officetel") {
+    if (numberFromValue(item.publicStandardPrice) > 0) return null;
+    if (item.publicStandardPriceSource) return null;
+    const params = new URLSearchParams({
+      pnu: item.pnu,
+      address: item.rawAddress || item.address || ""
+    });
+    return {
+      url: `/api/officetel-price?${params.toString()}`,
+      apply: (target, payload) => {
+        if (!payload.ok || !(payload.price > 0)) return null;
+        return {
+          ...target,
+          publicStandardPrice: payload.price,
+          publicStandardPriceSource: payload.source,
+          publicStandardPriceUnit: payload.matched || null,
           checks: uniqueValues([...(target.checks || []), `${payload.source} 확인`])
         };
       }
@@ -615,7 +637,20 @@ function enrichProperty(item) {
 function resolveOfficialBasis(item) {
   const propertyKind = officialPropertyKind(item);
   const housingPrice = numberFromValue(item.publicHousingPrice);
+  const standardPrice = numberFromValue(item.publicStandardPrice);
   const landReferenceValue = landOfficialValue(item);
+
+  if (standardPrice > 0) {
+    return {
+      kind: propertyKind,
+      label: "기준시가",
+      shortLabel: "기준시가",
+      value: standardPrice,
+      comparable: true,
+      referenceValue: landReferenceValue,
+      referenceLabel: landReferenceValue ? "토지공시지가 참고" : ""
+    };
+  }
 
   if (housingPrice > 0) {
     return {
@@ -904,7 +939,7 @@ function renderTags(item) {
     { label: `위험 ${item.risk}`, tone: item.risk === "낮음" ? "good" : item.risk === "높음" ? "hot" : "" },
     { label: item.zoning, tone: "" }
   ];
-  if (item.officialLandPriceSource || item.publicHousingPriceSource) {
+  if (item.officialLandPriceSource || item.publicHousingPriceSource || item.publicStandardPriceSource) {
     tags.push({ label: item.officialComparable ? `${item.officialBasisShortLabel} 기준` : "토지공시 참고", tone: item.officialComparable ? "good" : "info" });
   }
   if (!item.officialComparable) {
@@ -1565,6 +1600,7 @@ function renderInlineDetail(item) {
       ${item.officialReferenceValue ? detailStat(item.officialReferenceLabel || "토지공시지가 참고", formatWon(item.officialReferenceValue), "neutral") : ""}
       ${item.officialLandPriceSource ? detailStat("토지공시지가", `${item.officialLandPriceYear}년`) : ""}
       ${item.publicHousingPriceSource ? detailStat(item.publicHousingPriceSource, `${item.publicHousingPriceYear}년${item.publicHousingPriceUnit?.dong ? ` · ${item.publicHousingPriceUnit.dong}동` : ""}${item.publicHousingPriceUnit?.ho ? ` ${item.publicHousingPriceUnit.ho}호` : ""}`) : ""}
+      ${item.publicStandardPriceSource ? detailStat(item.publicStandardPriceSource, `${item.publicStandardPriceUnit?.floor ? `${item.publicStandardPriceUnit.floor}층 ` : ""}${item.publicStandardPriceUnit?.ho ? `${item.publicStandardPriceUnit.ho}호` : ""}`.trim() || "확인") : ""}
       ${item.marketDealSource ? detailStat("실거래 출처", item.marketDealScope || "서울시") : ""}
     </section>
     <section class="detail-section">

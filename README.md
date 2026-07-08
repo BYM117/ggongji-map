@@ -122,6 +122,8 @@ VWorld에서 확인한 공식 API:
 - `GET /api/court-auctions`: 로컬 법원경매 크롤러 API(`/api/v1/auctions`)를 꽁지맵 물건 형식으로 정규화합니다. `.env`의 `COURT_AUCTION_API_URL`로 서버 주소를 바꿀 수 있습니다.
 - `GET /api/land-price?pnu=...&year=2025`: VWorld 개별공시지가속성조회 프록시입니다. `.env`의 `VWORLD_API_KEY`가 필요합니다.
 - `GET /api/housing-price?pnu=...&kind=apart|indvd&year=2026&address=...`: VWorld 공동주택가격(`getApartHousingPriceAttr`)·개별주택가격(`getIndvdHousingPriceAttr`) 프록시입니다. 같은 `VWORLD_API_KEY`를 씁니다. `kind=apart`는 주소에서 동/호를 파싱해 해당 세대의 공시가격 총액을 찾고(`dong`/`ho`/`area` 파라미터로 직접 지정 가능), `kind=indvd`는 PNU당 1건인 개별주택가격을 반환합니다.
+- `GET /api/officetel-price?pnu=...&address=...`: 국세청 상업용건물·오피스텔 기준시가를 로컬 인덱스에서 조회합니다. PNU로 필지를, 주소의 층/호로 세대를 특정해 기준시가 총액(단가 × (전용면적+공유면적))을 반환합니다. API 키가 필요 없습니다.
+- `GET /api/geocode?address=...`: VWorld 주소검색으로 주소를 정밀 좌표와 19자리 PNU로 변환합니다. `VWORLD_API_KEY`가 필요합니다.
 - `GET /api/seoul-deals?district=강서구&dong=화곡동&type=오피스텔`: 서울시 부동산 실거래가 정보 프록시입니다. `.env`의 `SEOUL_REAL_ESTATE_API_KEY`가 필요합니다.
 - `GET /api/onbid-properties`: 온비드 API 응답을 꽁지맵 매물 형식으로 정규화합니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
 - `GET /api/onbid`: 온비드 API 프록시 자리입니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
