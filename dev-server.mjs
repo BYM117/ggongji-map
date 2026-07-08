@@ -1064,7 +1064,14 @@ async function fetchCourtAuctionProperties(params) {
   let scanPages = 0;
 
   try {
-    if (isMetroGroup) {
+    if (!courtAuctionBaseUrl()) {
+      const snapshotRows = await getCourtAuctionSnapshotRows();
+      const filteredRows = isMetroGroup ? snapshotRows.filter(isMetroCourtAuctionRow) : snapshotRows;
+      result = { total: filteredRows.length, count: Math.min(maxProperties, filteredRows.length - offset) };
+      rows = filteredRows.slice(offset, offset + maxProperties);
+      scannedRows = filteredRows.length;
+      scanPages = filteredRows.length ? 1 : 0;
+    } else if (isMetroGroup) {
       const collected = [];
       const scanLimit = clamp(numberFrom(params.get("scanLimit")) || 500, 50, 500);
       const maxScanPages = clamp(numberFrom(params.get("scanPages")) || 12, 1, 20);
