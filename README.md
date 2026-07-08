@@ -28,6 +28,7 @@ npm run dev
 ```
 
 꽁지맵 서버는 `/api/court-auctions`에서 `COURT_AUCTION_API_URL`의 `/api/v1/auctions`를 읽고, VWorld 주소검색으로 좌표를 보강한 뒤 지도용 물건 형식으로 변환합니다. 법원경매 API가 꺼져 있거나 결과가 없으면 기존 온비드 로딩으로 fallback합니다.
+기본값은 크롤러 DB에 모인 법원 물건 전체(`COURT_AUCTION_ACTIVE=all`, `COURT_AUCTION_REQUIRE_COORDINATES=0`)를 훑고, 좌표가 없는 물건은 주소 기반 추정 좌표로 현재 지도 화면 후보에 포함합니다.
 
 `index.html` 파일을 직접 더블클릭해서 `file://.../index.html`로 열면 안 됩니다. 브라우저가 모듈 스크립트를 막고, 네이버 지도 허용 도메인도 맞지 않아서 데이터와 지도가 둘 다 깨집니다.
 
@@ -125,6 +126,8 @@ cp .env.example .env
 VWORLD_API_KEY=발급받은_VWorld_API_KEY
 VWORLD_API_DOMAIN=http://127.0.0.1:4173
 COURT_AUCTION_API_URL=http://127.0.0.1:8000
+COURT_AUCTION_ACTIVE=all
+COURT_AUCTION_REQUIRE_COORDINATES=0
 SEOUL_REAL_ESTATE_API_KEY=서울시_부동산_실거래가_API_KEY
 ONBID_SERVICE_KEY=온비드_서비스키
 ```

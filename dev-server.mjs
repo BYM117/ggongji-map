@@ -777,15 +777,18 @@ async function getAllOnbidRows(params) {
 }
 
 async function getAllCourtAuctionRows(params) {
+  const activeFilter = courtAuctionFilterValue(
+    params.get("active") ?? process.env.COURT_AUCTION_ACTIVE ?? "all"
+  );
+  const requireCoordinates = courtAuctionRequireCoordinatesValue(
+    params.get("require_coordinates") ?? process.env.COURT_AUCTION_REQUIRE_COORDINATES ?? "0"
+  );
   const cacheKey = [
-    params.get("swLat") || "",
-    params.get("swLng") || "",
-    params.get("neLat") || "",
-    params.get("neLng") || "",
-    params.get("active") || process.env.COURT_AUCTION_ACTIVE || "true",
+    activeFilter || "all",
+    requireCoordinates || "0",
     params.get("sort") || process.env.COURT_AUCTION_SORT || "priority_desc",
     params.get("courtRows") || "500",
-    params.get("courtPages") || "50"
+    params.get("courtPages") || "100"
   ].join(":");
   if (cache.courtRowsPromise && cache.courtRowsKey === cacheKey) return cache.courtRowsPromise;
   cache.courtRowsKey = cacheKey;
@@ -797,7 +800,7 @@ async function getAllCourtAuctionRows(params) {
     }
 
     const scanLimit = clamp(numberFrom(params.get("courtRows")) || 500, 50, 500);
-    const maxScanPages = clamp(numberFrom(params.get("courtPages")) || 50, 1, 100);
+    const maxScanPages = clamp(numberFrom(params.get("courtPages")) || 100, 1, 100);
     const rows = [];
     let total = 0;
 
@@ -888,7 +891,7 @@ function isRoughlyInsideBounds(row, bounds) {
   const lat = numberFrom(firstValue(row, ["lat", "latitude", "y"]));
   const lng = numberFrom(firstValue(row, ["lng", "longitude", "x"]));
   const roughText = row?.address || row?.addr || row?.court || row?.court_name || courtAuctionSearchText(row);
-  const point = lat && lng ? { lat, lng } : roughPointForAddress(roughText);
+  const point = lat && lng ? { lat, lng } : fallbackPointForAddress(roughText);
   if (!point) return false;
 
   const latSpan = Math.max(bounds.neLat - bounds.swLat, 0.02);
@@ -1139,7 +1142,7 @@ async function fetchCourtAuctionProperties(params) {
       regionGroup: isMetroGroup ? "metro" : "",
       scannedRows,
       scanPages,
-      requiresCoordinates: true,
+      requiresCoordinates: Boolean(courtAuctionRequireCoordinatesValue(params.get("require_coordinates") ?? process.env.COURT_AUCTION_REQUIRE_COORDINATES ?? "0")),
       exactGeocode
     },
     raw: params.get("includeRaw") === "1" ? result : undefined
@@ -1188,13 +1191,23 @@ function buildCourtAuctionUrl(params, { limit, offset }) {
 
   apiUrl.searchParams.set("limit", String(limit));
   apiUrl.searchParams.set("offset", String(offset));
-  apiUrl.searchParams.set("active", params.get("active") || process.env.COURT_AUCTION_ACTIVE || "true");
   apiUrl.searchParams.set("sort", params.get("sort") || process.env.COURT_AUCTION_SORT || "priority_desc");
-  apiUrl.searchParams.set("require_coordinates", params.get("require_coordinates") || "1");
 
-  for (const key of ["swLat", "swLng", "neLat", "neLng"]) {
-    const value = params.get(key);
-    if (value) apiUrl.searchParams.set(key, value);
+  const activeFilter = courtAuctionFilterValue(
+    params.get("active") ?? process.env.COURT_AUCTION_ACTIVE ?? "all"
+  );
+  if (activeFilter) apiUrl.searchParams.set("active", activeFilter);
+
+  const requireCoordinates = courtAuctionRequireCoordinatesValue(
+    params.get("require_coordinates") ?? process.env.COURT_AUCTION_REQUIRE_COORDINATES ?? "0"
+  );
+  if (requireCoordinates) apiUrl.searchParams.set("require_coordinates", requireCoordinates);
+
+  if (process.env.COURT_AUCTION_SERVER_BOUNDS_FILTER === "1") {
+    for (const key of ["swLat", "swLng", "neLat", "neLng"]) {
+      const value = params.get(key);
+      if (value) apiUrl.searchParams.set(key, value);
+    }
   }
 
   for (const key of passthrough) {
@@ -1207,6 +1220,19 @@ function buildCourtAuctionUrl(params, { limit, offset }) {
   }
 
   return apiUrl;
+}
+
+function courtAuctionFilterValue(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized || ["all", "any", "*", "전체"].includes(normalized)) return "";
+  return String(value).trim();
+}
+
+function courtAuctionRequireCoordinatesValue(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized || ["0", "false", "no", "n", "off", "all", "any", "*", "전체"].includes(normalized)) return "";
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return "1";
+  return String(value).trim();
 }
 
 function courtAuctionBaseUrl() {
@@ -1256,6 +1282,12 @@ function mapCourtAuctionRow(row) {
   if (normalizedShare.is_share_sale) checks.push("지분 매각");
   if (normalizedAddress.clean) checks.push("주소 정규화");
   if (normalizedScreening.flags?.length) checks.push(...normalizedScreening.flags.slice(0, 4));
+  const originalLat = numberFrom(firstValue(row, ["lat", "latitude", "y"]));
+  const originalLng = numberFrom(firstValue(row, ["lng", "longitude", "x"]));
+  const point = originalLat && originalLng
+    ? { lat: originalLat, lng: originalLng }
+    : fallbackPointForAddress(cleanAddress || address || row.court || caseNo);
+  if (!originalLat || !originalLng) checks.push("주소 기반 추정 좌표");
 
   return {
     ...row,
@@ -1270,6 +1302,8 @@ function mapCourtAuctionRow(row) {
     appraisal: normalizedPrice.appraisal || firstMoneyValue(row.appraisal || ""),
     landArea: normalizedArea.land_sqm || normalizedArea.total_sqm || extractAreaFromText(address) || 1,
     buildingArea: normalizedArea.building_sqm || null,
+    lat: point.lat,
+    lng: point.lng,
     pnu: row.pnu || "",
     bidDate: normalizedAuction.sale_date || row.sale_date || row.saleDate || "",
     failCount: normalizedAuction.fail_count ?? extractFailCount(status),
