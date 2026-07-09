@@ -1,6 +1,7 @@
 const LAND_PRICE_YEAR = new Date().getFullYear().toString();
 const DEFAULT_DISCOUNT_FILTER = -100;
 const REFERENCE_HYDRATION_LIMIT = 60;
+const HYDRATION_MAX = 160;
 const LIST_RENDER_LIMIT = 50;
 const LIST_RENDER_STEP = 100;
 const VIEWPORT_FETCH_MARGIN = 0.35;
@@ -55,6 +56,8 @@ const state = {
   viewportRequestId: 0,
   viewportLoading: false,
   viewportQueued: false,
+  hydrating: false,
+  hydrateQueued: null,
   loadedBounds: null,
   listLimit: LIST_RENDER_LIMIT,
   naverRetryCount: 0,
@@ -113,7 +116,11 @@ async function loadViewportProperties({ force = false } = {}) {
   if (!bounds) return [];
 
   // 이미 불러온(여유분 포함) 영역 안에서의 이동/줌은 재요청 없이 클라이언트 필터로 처리한다.
-  if (!force && state.loadedBounds && boundsContain(state.loadedBounds, bounds)) return properties;
+  // 단, 새로 화면에 들어온 물건도 공시가격을 채워야 하므로 하이드레이션은 다시 조준한다.
+  if (!force && state.loadedBounds && boundsContain(state.loadedBounds, bounds)) {
+    triggerHydration("현재 화면 실데이터", "live");
+    return properties;
+  }
 
   // 화면보다 조금 넓게 받아 두면 이어지는 소규모 이동에서 재요청이 생략된다.
   const fetchBounds = expandBounds(bounds, VIEWPORT_FETCH_MARGIN);
@@ -126,7 +133,7 @@ async function loadViewportProperties({ force = false } = {}) {
     const payload = await fetchViewportSource(fetchBounds, "court", { exactGeocode: "0" });
     if (requestId !== state.viewportRequestId) return [];
 
-    const incoming = uniquePropertyItems(payload.properties || []);
+    const incoming = applyHydrationCache(uniquePropertyItems(payload.properties || []));
     properties = incoming;
     state.loadedBounds = fetchBounds;
     state.listLimit = LIST_RENDER_LIMIT;
@@ -139,10 +146,7 @@ async function loadViewportProperties({ force = false } = {}) {
     render();
     setDataStatus(`${properties.length.toLocaleString("ko-KR")}개 법원경매 표시 · 온비드 확인 중`, "live");
 
-    if (shouldHydrateReferenceData() && properties.length) {
-      hydrateReferenceData("현재 화면 실데이터", "live", referenceHydrationTargets(properties))
-        .catch((error) => console.warn("Failed to hydrate viewport reference data", error));
-    }
+    triggerHydration("현재 화면 실데이터", "live");
 
     loadOnbidViewportProperties(fetchBounds, requestId).catch((error) => console.warn("Failed to load viewport Onbid data", error));
 
@@ -195,14 +199,11 @@ async function loadExactCourtViewportProperties(bounds, requestId) {
   const incoming = uniquePropertyItems(payload.properties || []);
   if (!incoming.length) return [];
 
-  properties = mergePropertyUpdates(properties, incoming);
+  properties = mergePropertyUpdates(properties, applyHydrationCache(incoming));
   populateFilters();
   render();
   setDataStatus(`${properties.length.toLocaleString("ko-KR")}개 화면 내 경공매 · 정밀 좌표 반영`, "live");
-  if (shouldHydrateReferenceData()) {
-    hydrateReferenceData("현재 화면 실데이터", "live", referenceHydrationTargets(incoming))
-    .catch((error) => console.warn("Failed to hydrate exact court reference data", error));
-  }
+  triggerHydration("현재 화면 실데이터", "live");
   return incoming;
 }
 
@@ -216,14 +217,11 @@ async function loadOnbidViewportProperties(bounds, requestId) {
     return [];
   }
 
-  properties = uniquePropertyItems([...properties, ...incoming]);
+  properties = uniquePropertyItems([...properties, ...applyHydrationCache(incoming)]);
   populateFilters();
   render();
   setDataStatus(`${properties.length.toLocaleString("ko-KR")}개 화면 내 경공매 · 온비드 ${incoming.length}개`, "live");
-  if (shouldHydrateReferenceData()) {
-    hydrateReferenceData("현재 화면 실데이터", "live", referenceHydrationTargets(incoming))
-    .catch((error) => console.warn("Failed to hydrate Onbid reference data", error));
-  }
+  triggerHydration("현재 화면 실데이터", "live");
   return incoming;
 }
 
@@ -232,10 +230,35 @@ function shouldHydrateReferenceData() {
   return zoom >= 13;
 }
 
-function referenceHydrationTargets(items) {
-  return interleaveSourceItems(items)
+// 하이드레이션은 "화면에 실제로 보이는" 물건(필터·정렬·경계 적용)을 조준한다.
+// 로드 순서가 아니라 사용자가 리스트에서 보는 상위 물건이어야 체감 커버리지가 오른다.
+function referenceHydrationTargets() {
+  const enriched = properties.map(enrichProperty);
+  const visible = getVisibleProperties(enriched);
+  const limit = Math.min(Math.max(state.listLimit + 20, REFERENCE_HYDRATION_LIMIT), HYDRATION_MAX);
+  return visible
     .filter((item) => item?.pnu || pnuGeocodeEligible(item) || item?.region?.startsWith("서울"))
-    .slice(0, REFERENCE_HYDRATION_LIMIT);
+    .slice(0, limit);
+}
+
+// 여러 트리거(뷰포트·온비드·더보기)가 겹쳐도 조회는 한 번에 하나씩만 돌린다.
+function triggerHydration(baseLabel, tone) {
+  if (!shouldHydrateReferenceData() || !properties.length) return;
+  if (state.hydrating) {
+    state.hydrateQueued = { baseLabel, tone };
+    return;
+  }
+  state.hydrating = true;
+  hydrateReferenceData(baseLabel, tone, referenceHydrationTargets())
+    .catch((error) => console.warn("Failed to hydrate reference data", error))
+    .finally(() => {
+      state.hydrating = false;
+      const queued = state.hydrateQueued;
+      if (queued) {
+        state.hydrateQueued = null;
+        triggerHydration(queued.baseLabel, queued.tone);
+      }
+    });
 }
 
 function mergePropertyUpdates(currentItems, updates) {
@@ -254,6 +277,55 @@ function uniquePropertyItems(items) {
     if (!item?.id || seen.has(item.id)) return false;
     seen.add(item.id);
     return true;
+  });
+}
+
+// 하이드레이션으로 채운 값을 물건 id 기준으로 기억한다.
+// 뷰포트 재로딩(properties = incoming)이 신선한 객체로 덮어써도 값이 사라지지 않게 한다.
+const hydrationCache = new Map();
+const HYDRATION_FIELDS = [
+  "pnu",
+  "lat",
+  "lng",
+  "geocodeSource",
+  "publicLandPricePerSqm",
+  "officialLandPriceSource",
+  "officialLandPriceYear",
+  "officialLandPricePublishedAt",
+  "officialLandPriceLocation",
+  "publicHousingPrice",
+  "publicHousingPriceSource",
+  "publicHousingPriceYear",
+  "publicHousingPriceUnit",
+  "publicStandardPrice",
+  "publicStandardPriceSource",
+  "publicStandardPriceUnit",
+  "nearbyDeals",
+  "marketDealSource",
+  "marketDealScope"
+];
+
+function rememberHydration(item) {
+  const patch = {};
+  for (const key of HYDRATION_FIELDS) {
+    const value = item[key];
+    if (value !== undefined && value !== null && value !== "") patch[key] = value;
+  }
+  if (!Object.keys(patch).length) return;
+  patch.checks = item.checks;
+
+  // 오래 패닝하면 캐시가 무한히 자라므로 오래된 항목부터 밀어낸다.
+  if (!hydrationCache.has(item.id) && hydrationCache.size >= 8000) {
+    hydrationCache.delete(hydrationCache.keys().next().value);
+  }
+  hydrationCache.set(item.id, patch);
+}
+
+function applyHydrationCache(items) {
+  if (!hydrationCache.size) return items;
+  return items.map((item) => {
+    const patch = hydrationCache.get(item.id);
+    return patch ? { ...item, ...patch } : item;
   });
 }
 
@@ -321,6 +393,7 @@ async function hydratePnu(baseLabel, tone, targetItems = properties) {
   const updates = new Map(results.filter(Boolean).map((item) => [item.id, item]));
   if (!updates.size) return 0;
 
+  updates.forEach((item) => rememberHydration(item));
   properties = properties.map((item) => updates.get(item.id) || item);
   render();
   return updates.size;
@@ -356,6 +429,7 @@ async function hydrateOfficialPrices(baseLabel, tone, targetItems = properties) 
     return 0;
   }
 
+  updates.forEach((item) => rememberHydration(item));
   properties = properties.map((item) => updates.get(item.id) || item);
   render();
   setDataStatus(`${baseLabel} · 공시가격 ${updates.size}개 반영`, tone);
@@ -476,6 +550,7 @@ async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
   const updates = new Map(results.filter(Boolean).map((item) => [item.id, item]));
   if (!updates.size) return 0;
 
+  updates.forEach((item) => rememberHydration(item));
   properties = properties.map((item) => updates.get(item.id) || item);
   render();
   setDataStatus(`${baseLabel} · 실거래 ${updates.size}개 반영`, tone);
@@ -858,6 +933,8 @@ function appendLoadMoreButton(container, totalCount) {
   button.addEventListener("click", () => {
     state.listLimit += LIST_RENDER_STEP;
     render();
+    // 새로 펼쳐진 목록 물건도 공시가격 조회 대상에 포함한다.
+    triggerHydration("목록 확장", "live");
   });
   container.append(button);
 }
