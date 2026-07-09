@@ -1040,6 +1040,73 @@ function selectProperty(id) {
     }, 300);
   }
   renderSelectedParcelBoundary(item);
+  hydrateSelected(item);
+}
+
+// 지도 전체 마커는 대량이라 일괄 조회 상한을 넘어선다.
+// 그래서 사용자가 실제로 클릭해서 보는 물건은 즉시(단건) 지오코딩→공시가격을 순차 조회해 비교보류를 없앤다.
+// 일괄 파이프라인(refreshTargets/동시성)과 얽히지 않도록 자족적으로 처리한다.
+async function hydrateSelected(item) {
+  if (!item || !shouldHydrateReferenceData()) return;
+  const id = item.id;
+  const kind = officialPropertyKind(item);
+  if (!["land", "commonHousing", "detachedHousing", "officetel"].includes(kind)) return;
+
+  let current = properties.find((property) => property.id === id) || item;
+  if (isOfficiallyPriced(current)) return;
+
+  // 1) PNU가 없으면 먼저 지오코딩으로 확보한다.
+  if (!current.pnu && pnuGeocodeEligible(current)) {
+    try {
+      const response = await fetch(`/api/geocode?address=${encodeURIComponent(current.rawAddress || current.address)}`, { cache: "no-store" });
+      const payload = response.ok ? await response.json() : null;
+      if (payload?.ok && payload.found && payload.pnu) {
+        current = {
+          ...current,
+          pnu: payload.pnu,
+          lat: payload.lat || current.lat,
+          lng: payload.lng || current.lng,
+          geocodeSource: "주소 좌표 확인",
+          checks: uniqueValues([...(current.checks || []).filter((check) => check !== "주소 기반 추정 좌표"), "주소 좌표 확인"])
+        };
+        applySingleUpdate(current);
+      } else if (payload?.ok) {
+        geocodeMisses.add(id);
+      }
+    } catch (error) {
+      console.warn("Failed to geocode selected property", error);
+    }
+  }
+  if (!current.pnu) return;
+
+  // 2) 유형에 맞는 공시가격/기준시가를 조회한다.
+  const request = officialPriceRequest(current);
+  if (!request) return;
+  try {
+    const response = await fetch(request.url, { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const updated = request.apply(current, payload);
+    if (updated) applySingleUpdate(updated);
+    else if (payload.ok) officialPriceMisses.add(id);
+  } catch (error) {
+    console.warn("Failed to price selected property", error);
+  }
+
+  if (state.selectedId === id) render();
+}
+
+function isOfficiallyPriced(item) {
+  return (
+    numberFromValue(item.publicHousingPrice) > 0 ||
+    numberFromValue(item.publicStandardPrice) > 0 ||
+    Boolean(item.officialLandPriceSource)
+  );
+}
+
+function applySingleUpdate(updated) {
+  rememberHydration(updated);
+  properties = properties.map((property) => (property.id === updated.id ? updated : property));
 }
 
 function renderMap(items) {
