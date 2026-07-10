@@ -56,6 +56,7 @@ const state = {
   viewportRequestId: 0,
   viewportLoading: false,
   viewportQueued: false,
+  suppressNextIdleFetch: false,
   hydrating: false,
   hydrateQueued: null,
   loadedBounds: null,
@@ -133,8 +134,9 @@ async function loadViewportProperties({ force = false } = {}) {
     const payload = await fetchViewportSource(fetchBounds, "court", { exactGeocode: "0" });
     if (requestId !== state.viewportRequestId) return [];
 
+    const selectedBeforeReload = state.selectedId ? properties.find((item) => item.id === state.selectedId) : null;
     const incoming = applyHydrationCache(uniquePropertyItems(payload.properties || []));
-    properties = incoming;
+    properties = preserveSelectedProperty(incoming, selectedBeforeReload);
     state.loadedBounds = fetchBounds;
     state.listLimit = LIST_RENDER_LIMIT;
     if (state.selectedId && !properties.some((item) => item.id === state.selectedId)) {
@@ -172,6 +174,11 @@ async function loadViewportProperties({ force = false } = {}) {
       }
     }
   }
+}
+
+function preserveSelectedProperty(items, selected) {
+  if (!state.selectedId || !selected || items.some((item) => item.id === state.selectedId)) return items;
+  return [selected, ...items];
 }
 
 async function fetchViewportSource(bounds, source, options = {}) {
@@ -438,6 +445,7 @@ async function hydrateOfficialPrices(baseLabel, tone, targetItems = properties) 
 
 // 물건 유형에 맞는 공시가격 API 요청을 만든다. 대상이 아니거나 이미 채워졌으면 null.
 function officialPriceRequest(item) {
+  if (numberFromValue(item.officialPrice) > 0) return null; // 사전 계산값이 있으면 조회 불필요
   if (!item.pnu) return null;
   const kind = officialPropertyKind(item);
 
@@ -609,6 +617,13 @@ function bindEvents() {
   });
   dom.keywordSearch.addEventListener("input", (event) => updateFilter("keyword", event.target.value.trim()));
   dom.resetFilters.addEventListener("click", resetFilters);
+  document.addEventListener("click", (event) => {
+    const marker = event.target.closest?.(".auction-marker[data-property-id], .dot-marker[data-property-id]");
+    if (!marker) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openPropertyDetail(marker.dataset.propertyId);
+  });
 }
 
 function updateFilter(key, value) {
@@ -645,12 +660,19 @@ function resetFilters() {
 function render() {
   const enriched = properties.map(enrichProperty);
   const visible = getVisibleProperties(enriched);
+  const mapItems = includeSelectedMapItem(visible, enriched);
 
   renderMetrics(visible);
   renderRecommendationPanel(visible);
   renderAuctionPanel(visible);
-  renderMap(visible);
+  renderMap(mapItems);
   renderSelectedParcelBoundary(enriched.find((item) => item.id === state.selectedId) || null);
+}
+
+function includeSelectedMapItem(items, enrichedItems) {
+  if (!state.selectedId || items.some((item) => item.id === state.selectedId)) return items;
+  const selected = enrichedItems.find((item) => item.id === state.selectedId);
+  return selected ? [selected, ...items] : items;
 }
 
 function getVisibleProperties(items) {
@@ -714,6 +736,21 @@ function resolveOfficialBasis(item) {
   const housingPrice = numberFromValue(item.publicHousingPrice);
   const standardPrice = numberFromValue(item.publicStandardPrice);
   const landReferenceValue = landOfficialValue(item);
+
+  // 크롤러가 사전 계산해 실어 보낸 공시기준가가 있으면 그대로 쓴다(런타임 조회 불필요).
+  const prebuilt = numberFromValue(item.officialPrice);
+  if (prebuilt > 0) {
+    const label = item.officialPriceType || "공시기준가";
+    return {
+      kind: propertyKind,
+      label,
+      shortLabel: label,
+      value: prebuilt,
+      comparable: true,
+      referenceValue: landReferenceValue,
+      referenceLabel: landReferenceValue ? "토지공시지가 참고" : ""
+    };
+  }
 
   if (standardPrice > 0) {
     return {
@@ -1034,10 +1071,11 @@ function selectProperty(id) {
   const item = properties.find((property) => property.id === id);
   if (state.map && item) {
     state.isProgrammaticMove = true;
+    state.suppressNextIdleFetch = true;
     state.map.panTo(new naver.maps.LatLng(item.lat, item.lng));
     window.setTimeout(() => {
       state.isProgrammaticMove = false;
-    }, 300);
+    }, 900);
   }
   renderSelectedParcelBoundary(item);
   hydrateSelected(item);
@@ -1125,13 +1163,15 @@ function renderFallbackMarkers(items) {
   items.forEach((item) => {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `fallback-marker ${item.score < 50 ? "risky" : item.score < 65 ? "medium" : ""}`;
+    const kind = sourceKind(item);
+    marker.className = `fallback-marker source-${kind} ${item.score < 50 ? "risky" : item.score < 65 ? "medium" : ""}`;
     marker.classList.toggle("active", item.id === state.selectedId);
+    marker.style.setProperty("--pin-color", markerColor(item, kind, false));
     marker.style.left = `${scale(item.lng, bounds.minLng, bounds.maxLng, 9, 91)}%`;
     marker.style.top = `${scale(item.lat, bounds.maxLat, bounds.minLat, 9, 91)}%`;
-    marker.textContent = `${item.score}`;
+    marker.innerHTML = markerLabelHtml(item);
     marker.title = item.title;
-    marker.addEventListener("click", () => selectProperty(item.id));
+    marker.addEventListener("click", () => openPropertyDetail(item.id));
     dom.fallbackMap.append(marker);
   });
 }
@@ -1286,6 +1326,10 @@ function handleMapIdle() {
   window.clearTimeout(state.viewportTimer);
   state.viewportTimer = window.setTimeout(() => {
     render();
+    if (state.suppressNextIdleFetch) {
+      state.suppressNextIdleFetch = false;
+      return;
+    }
     if (!state.isProgrammaticMove) {
       loadViewportProperties().catch((error) => console.warn("Failed to refresh viewport properties", error));
     }
@@ -1389,7 +1433,19 @@ function makeClusters(items) {
   const adminLevel = adminClusterLevel(zoom);
   if (adminLevel) return makeAdminClusters(items, adminLevel);
 
-  const cellSize = clusterCellSize(zoom);
+  return makePropertyMarkers(items, zoom);
+}
+
+function makePropertyMarkers(items, zoom) {
+  const sorted = sortProperties(items);
+  const labelLimit = maxLabelMarkers(zoom);
+  const labelItems = new Set(sorted.slice(0, labelLimit).map((item) => item.id));
+  const clusters = makeCellClusters(sorted, clusterCellSize(zoom), labelItems, zoom);
+
+  return limitDotMarkers(clusters, zoom);
+}
+
+function makeCellClusters(items, cellSize, labelItems, zoom) {
   const buckets = new Map();
 
   items.forEach((item) => {
@@ -1407,13 +1463,15 @@ function makeClusters(items) {
         key: `item:${item.id}`,
         count: 1,
         items: bucket,
-        title: item.title
+        title: item.title,
+        displayMode: labelItems.has(item.id) ? "label" : "dot"
       };
     }
 
     const lat = bucket.reduce((sum, item) => sum + item.lat, 0) / bucket.length;
     const lng = bucket.reduce((sum, item) => sum + item.lng, 0) / bucket.length;
     const top = sortProperties(bucket)[0];
+    const displayMode = zoom >= 15 && labelItems.has(top.id) ? "label" : "dot";
     return {
       ...top,
       // 셀 좌표 기반 안정 키 — 데이터가 갱신돼도 같은 셀이면 마커를 재사용한다.
@@ -1423,14 +1481,16 @@ function makeClusters(items) {
       lat,
       lng,
       title: `${bucket.length}개 물건`,
-      groupLabel: ""
+      groupLabel: `${bucket.length}개`,
+      displayMode
     };
   });
 }
 
 function adminClusterLevel(zoom) {
-  if (zoom <= 7) return "province";
-  if (zoom <= 10) return "district";
+  if (zoom <= 8) return "province";
+  if (zoom <= 11) return "district";
+  if (zoom <= 13) return "local";
   return "";
 }
 
@@ -1445,7 +1505,7 @@ function makeAdminClusters(items, level) {
     buckets.set(key, bucket);
   });
 
-  return [...buckets.entries()].map(([key, bucket]) => {
+  const clusters = [...buckets.entries()].map(([key, bucket]) => {
     const top = sortProperties(bucket)[0];
     const label = key.split(":").slice(1).join(":");
     const center = level === "province" ? provinceCenter(label) : null;
@@ -1460,42 +1520,118 @@ function makeAdminClusters(items, level) {
       lat,
       lng,
       title: `${label} ${bucket.length}개 물건`,
-      groupLabel: shortAdminLabel(label)
+      groupLabel: shortAdminLabel(label),
+      displayMode: "area",
+      adminLabel: shortAdminLabel(label)
     };
   });
+
+  return limitAdminClusters(clusters, level);
 }
 
 function adminClusterLabel(item, level) {
-  const parts = String(item.region || guessRegion(item.address) || "전국")
+  const parts = String(item.address || item.region || guessRegion(item.address) || "전국")
     .trim()
     .split(/\s+/)
     .filter(Boolean);
   if (!parts.length) return "전국";
 
-  const province = normalizeProvinceName(parts[0]);
+  const firstPartIsProvince = isKnownProvinceName(normalizeProvinceName(parts[0]));
+  const province = resolveProvinceName(item, parts);
+  const district = firstPartIsProvince ? parts[1] : parts[0];
   if (level === "province") return province;
-  return [province, parts[1]].filter(Boolean).join(" ");
+  if (level === "district") return [province, district].filter(Boolean).join(" ");
+
+  const local = findLocalAdminPart(parts.slice(firstPartIsProvince ? 2 : 1));
+  return [province, district, local && local !== district ? local : ""].filter(Boolean).join(" ");
+}
+
+function resolveProvinceName(item, parts) {
+  const direct = normalizeProvinceName(parts[0]);
+  if (isKnownProvinceName(direct)) return direct;
+
+  const found = parts.map(normalizeProvinceName).find(isKnownProvinceName);
+  if (found) return found;
+
+  const nearest = nearestProvinceByCoordinate(item);
+  if (nearest) return nearest;
+
+  return direct || "지역 미확인";
+}
+
+function isKnownProvinceName(value) {
+  return Boolean(PROVINCE_CENTERS[value]);
+}
+
+function nearestProvinceByCoordinate(item) {
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
+
+  return Object.entries(PROVINCE_CENTERS)
+    .map(([label, center]) => ({
+      label,
+      distance: Math.hypot(lat - center[0], lng - center[1])
+    }))
+    .sort((a, b) => a.distance - b.distance)[0]?.label || "";
+}
+
+function findLocalAdminPart(parts) {
+  return (
+    parts
+      .map((part) => part.replace(/[(),]/g, "").trim())
+      .find((part) => /(동|읍|면|리|가)$/.test(part) && !/(대로|로|길|번길)$/.test(part)) || ""
+  );
+}
+
+function limitAdminClusters(clusters, level) {
+  const max = level === "province" ? 40 : level === "district" ? 90 : 90;
+  if (clusters.length <= max) return clusters;
+
+  const selectedCluster = clusters.find((cluster) => cluster.items?.some((item) => item.id === state.selectedId));
+  const ranked = clusters
+    .filter((cluster) => cluster !== selectedCluster)
+    .sort((a, b) => (b.count || 0) - (a.count || 0) || (b.score || 0) - (a.score || 0))
+    .slice(0, selectedCluster ? max - 1 : max);
+
+  return selectedCluster ? [selectedCluster, ...ranked] : ranked;
 }
 
 function normalizeProvinceName(value) {
   const aliases = {
     서울: "서울특별시",
+    서울시: "서울특별시",
     부산: "부산광역시",
+    부산시: "부산광역시",
     대구: "대구광역시",
+    대구시: "대구광역시",
     인천: "인천광역시",
+    인천시: "인천광역시",
     광주: "광주광역시",
+    광주시: "광주광역시",
     대전: "대전광역시",
+    대전시: "대전광역시",
     울산: "울산광역시",
+    울산시: "울산광역시",
     세종: "세종특별자치시",
+    세종시: "세종특별자치시",
     경기: "경기도",
     강원: "강원특별자치도",
+    강원도: "강원특별자치도",
     충북: "충청북도",
+    충청북도: "충청북도",
     충남: "충청남도",
+    충청남도: "충청남도",
     전북: "전북특별자치도",
+    전라북도: "전북특별자치도",
     전남: "전라남도",
+    전라남도: "전라남도",
     경북: "경상북도",
+    경상북도: "경상북도",
     경남: "경상남도",
-    제주: "제주특별자치도"
+    경상남도: "경상남도",
+    제주: "제주특별자치도",
+    제주도: "제주특별자치도"
   };
   return aliases[value] || value;
 }
@@ -1516,16 +1652,46 @@ function shortAdminLabel(label) {
 }
 
 function clusterCellSize(zoom) {
-  if (zoom >= 16) return 0.0015;
-  if (zoom >= 14) return 0.004;
-  if (zoom >= 12) return 0.012;
-  if (zoom >= 10) return 0.035;
-  if (zoom >= 8) return 0.08;
-  return 0.16;
+  if (zoom >= 18) return 0.00008;
+  if (zoom >= 17) return 0.00018;
+  if (zoom >= 16) return 0.00042;
+  if (zoom >= 15) return 0.0009;
+  return 0.0024;
+}
+
+function maxLabelMarkers(zoom) {
+  if (zoom >= 18) return 140;
+  if (zoom >= 17) return 110;
+  if (zoom >= 16) return 76;
+  if (zoom >= 15) return 44;
+  return 22;
+}
+
+function maxDotMarkers(zoom) {
+  if (zoom >= 18) return 260;
+  if (zoom >= 17) return 220;
+  if (zoom >= 16) return 180;
+  if (zoom >= 15) return 130;
+  return 90;
+}
+
+function limitDotMarkers(clusters, zoom) {
+  const maxDots = maxDotMarkers(zoom);
+  const labels = clusters.filter((cluster) => cluster.displayMode === "label");
+  const dots = clusters.filter((cluster) => cluster.displayMode !== "label");
+  if (dots.length <= maxDots) return clusters;
+
+  const selectedDot = dots.find((cluster) => cluster.items?.some((item) => item.id === state.selectedId));
+  const remaining = dots
+    .filter((cluster) => cluster !== selectedDot)
+    .sort((a, b) => (b.count || 1) - (a.count || 1) || (b.score || 0) - (a.score || 0))
+    .slice(0, selectedDot ? maxDots - 1 : maxDots);
+
+  return [...labels, ...(selectedDot ? [selectedDot] : []), ...remaining];
 }
 
 function handleMarkerClick(cluster) {
-  if (cluster.count > 1 && state.map) {
+  if (cluster.count > 1 && state.map && cluster.displayMode !== "label") {
     state.isProgrammaticMove = true;
     state.map.setCenter(new naver.maps.LatLng(cluster.lat, cluster.lng));
     state.map.setZoom(Math.min(state.map.getZoom() + 2, 18));
@@ -1535,7 +1701,7 @@ function handleMarkerClick(cluster) {
     return;
   }
 
-  selectProperty(cluster.items[0].id);
+  openPropertyDetail(cluster.items[0].id);
 }
 
 async function renderSelectedParcelBoundary(item) {
@@ -1664,29 +1830,109 @@ function markerIcon(item) {
   const isCluster = item.count > 1;
   const kind = isCluster ? clusterSourceKind(item.items || []) : sourceKind(item);
   const color = markerColor(item, kind, isCluster);
-  const size = isCluster ? Math.min(68, 40 + Math.log10(item.count + 1) * 13) : 46;
-  const label = isCluster ? item.count : item.score;
-  const className = isCluster
-    ? `cluster-marker source-${kind}`
-    : `pinpoint-marker source-${kind} ${item.id === state.selectedId ? "active" : ""}`;
-  const content = isCluster
-    ? `<div class="${className}" style="width:${size}px;height:${size}px;background:${color};"><strong>${label}</strong>${item.groupLabel ? `<span>${escapeHtml(item.groupLabel)}</span>` : ""}</div>`
-    : `<div class="${className}" style="--pin-color:${color};"><span class="pin-reticle"></span><b>${label}</b><em>${sourceShortLabel(item)}</em></div>`;
+  const mode = item.displayMode || (isCluster ? "cluster" : "label");
+  const active = item.items?.some((clusterItem) => clusterItem.id === state.selectedId) || item.id === state.selectedId;
+  const content = markerContent(item, kind, color, mode, active);
+  const markerSize = markerIconSize(item, mode);
 
   return {
     content,
-    size: new naver.maps.Size(size, size),
-    anchor: new naver.maps.Point(size / 2, size / 2)
+    size: new naver.maps.Size(markerSize.width, markerSize.height),
+    anchor: new naver.maps.Point(markerSize.anchorX, markerSize.anchorY)
   };
 }
 
+function markerContent(item, kind, color, mode, active) {
+  if (mode === "area") {
+    return `
+      <div class="area-marker source-${kind}" style="--pin-color:${color};">
+        <strong>${escapeHtml(item.adminLabel || item.groupLabel || "지역")}</strong>
+        <span>${Number(item.count || 0).toLocaleString("ko-KR")}개</span>
+        <i aria-hidden="true"></i>
+      </div>
+    `;
+  }
+
+  if (mode === "dot") {
+    const representative = item.items?.[0] || item;
+    const countLabel = item.count > 1 ? item.count.toLocaleString("ko-KR") : "";
+    return `
+      <div class="dot-marker source-${kind} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
+        <span>${escapeHtml(sourceShortLabel(representative))}</span>
+        ${countLabel ? `<strong>${countLabel}</strong>` : ""}
+      </div>
+    `;
+  }
+
+  if (item.count > 1 && mode !== "label") {
+    return `
+      <div class="cluster-marker source-${kind}" style="--pin-color:${color};">
+        <strong>${Number(item.count || 0).toLocaleString("ko-KR")}</strong>
+        <span>${escapeHtml(item.groupLabel || "묶음")}</span>
+        <i aria-hidden="true"></i>
+      </div>
+    `;
+  }
+
+  const representative = item.items?.[0] || item;
+  return `
+    <div class="auction-marker source-${kind} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
+      ${markerLabelHtml(representative)}
+    </div>
+  `;
+}
+
+function markerIconSize(item, mode) {
+  if (mode === "area") {
+    const width = Math.min(118, Math.max(78, 42 + String(item.adminLabel || item.groupLabel || "").length * 12));
+    return { width, height: 54, anchorX: width / 2, anchorY: 62 };
+  }
+  if (mode === "dot") {
+    const size = item.count > 1 ? 24 : 13;
+    return { width: size, height: size, anchorX: size / 2, anchorY: size / 2 };
+  }
+  if (item.count > 1) {
+    const width = Math.min(112, 68 + String(item.count).length * 10 + Math.log10(item.count + 1) * 7);
+    return { width, height: 52, anchorX: width / 2, anchorY: 58 };
+  }
+  return { width: 96, height: 54, anchorX: 48, anchorY: 56 };
+}
+
 function markerColor(item, kind, isCluster) {
-  if (isCluster && kind === "mixed") return "#111827";
-  if (kind === "onbid") return "#ff9500";
-  if (kind === "court") return "#007aff";
+  if (isCluster && kind === "mixed") return "#64748b";
+  if (kind === "onbid") return "#ff8352";
+  if (kind === "court") return "#55b900";
   if (item.score < 50) return "#b4463e";
   if (item.score < 65) return "#9a6b00";
   return "#11845b";
+}
+
+function markerLabelHtml(item) {
+  return `
+    <span class="auction-marker-source">${escapeHtml(sourceShortLabel(item))}</span>
+    <strong>${escapeHtml(formatMarkerBid(item.minBid))}</strong>
+    <small>${escapeHtml(formatMarkerDate(item.bidDate))}</small>
+    <i aria-hidden="true"></i>
+  `;
+}
+
+function formatMarkerBid(value) {
+  const amount = Number(value) || 0;
+  if (!amount) return "가격 확인";
+  if (Math.abs(amount) >= 100000000) return `${stripZero(amount / 100000000)}억`;
+  if (Math.abs(amount) >= 10000) return `${Math.round(amount / 10000).toLocaleString("ko-KR")}만`;
+  return formatWon(amount);
+}
+
+function formatMarkerDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "일정 확인";
+  const normalized = text.replace(/[./년월]/g, "-").replace(/일/g, "");
+  const match = normalized.match(/(?:\d{2,4}-)?(\d{1,2})-(\d{1,2})/);
+  if (match) return `${Number(match[1])}.${String(Number(match[2])).padStart(2, "0")}`;
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return `${date.getMonth() + 1}.${String(date.getDate()).padStart(2, "0")}`;
+  return text.length > 6 ? text.slice(0, 6) : text;
 }
 
 function clusterSourceKind(items) {
