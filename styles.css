@@ -1,36 +1,42 @@
 :root {
-  --bg: #def6ee;
-  --panel: rgba(245, 255, 250, 0.86);
-  --surface: #fffefd;
-  --surface-2: #f2fbf7;
-  --surface-3: #e1f6ec;
-  --ink: #18202a;
-  --muted: #697873;
-  --soft: #92a09a;
-  --line: rgba(73, 118, 101, 0.13);
-  --line-strong: rgba(54, 96, 81, 0.22);
+  /* 샘플 UI 기준: 중립 크림 캔버스 + 흰 카드 + 파스텔 포인트 + 다크 프레임 */
+  --bg: #f3f1ea;
+  --panel: rgba(250, 249, 245, 0.92);
+  --surface: #ffffff;
+  --surface-2: #f6f4ee;
+  --surface-3: #efece4;
+  --frame: #191b20;
+  --frame-ink: #f7f6f2;
+  --ink: #1c1f26;
+  --muted: #757a72;
+  --soft: #9b9f96;
+  --line: rgba(74, 78, 66, 0.1);
+  --line-strong: rgba(74, 78, 66, 0.2);
   --blue: #4d8dff;
-  --blue-soft: #e6f1ff;
-  --green: #19bf8b;
-  --green-soft: #dff8ee;
-  --red: #ff6b65;
-  --red-soft: #ffe5e2;
-  --amber: #f1a21c;
-  --amber-soft: #fff0c7;
+  --blue-soft: #e3efff;
+  --green: #17b585;
+  --green-soft: #ddf5e9;
+  --red: #f26b62;
+  --red-soft: #ffe6e2;
+  --amber: #e8a013;
+  --amber-soft: #fdf0cd;
   --orange: #ff8352;
-  --orange-soft: #ffe6d6;
+  --orange-soft: #ffe8d9;
   --purple: #8069ff;
-  --purple-soft: #ece8ff;
+  --purple-soft: #ece7ff;
   --yellow: #ffd65a;
-  --clay-highlight: rgba(255, 255, 255, 0.96);
-  --clay-shadow: rgba(97, 141, 124, 0.18);
-  --shadow: 0 22px 42px rgba(80, 135, 115, 0.2), -8px -8px 22px rgba(255, 255, 255, 0.78);
-  --shadow-soft: 0 12px 24px rgba(80, 135, 115, 0.14), -5px -5px 16px rgba(255, 255, 255, 0.78);
-  --shadow-pop: 0 18px 32px rgba(77, 141, 255, 0.18), 0 8px 18px rgba(25, 191, 139, 0.1);
-  --shadow-inset: inset 4px 4px 10px rgba(83, 127, 110, 0.13), inset -5px -5px 12px rgba(255, 255, 255, 0.92);
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --clay-highlight: rgba(255, 255, 255, 0.95);
+  --clay-shadow: rgba(126, 118, 98, 0.2);
+  --shadow: 0 20px 38px rgba(126, 118, 98, 0.2), -6px -6px 18px rgba(255, 255, 255, 0.85);
+  --shadow-soft: 0 10px 22px rgba(126, 118, 98, 0.14), -4px -4px 14px rgba(255, 255, 255, 0.85);
+  --shadow-pop: 0 18px 32px rgba(77, 141, 255, 0.16), 0 8px 18px rgba(23, 181, 133, 0.1);
+  --shadow-inset: inset 4px 4px 10px rgba(126, 118, 98, 0.12), inset -5px -5px 12px rgba(255, 255, 255, 0.94);
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, Pretendard, "Segoe UI",
-    sans-serif;
+    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    Inter, "Segoe UI", sans-serif;
 }
 
 * {
@@ -46,10 +52,8 @@ body {
 
 body {
   color: var(--ink);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.34) 1px, transparent 1px) 0 0 / 34px 34px,
-    linear-gradient(0deg, rgba(255, 255, 255, 0.32) 1px, transparent 1px) 0 0 / 34px 34px,
-    linear-gradient(140deg, #e5fff5 0%, #dff7ef 44%, #f9f1e7 100%);
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -59,9 +63,10 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(circle at 8% 12%, rgba(255, 214, 90, 0.2), transparent 20%),
-    radial-gradient(circle at 96% 18%, rgba(128, 105, 255, 0.14), transparent 24%),
-    repeating-linear-gradient(0deg, rgba(24, 32, 42, 0.012) 0 1px, transparent 1px 5px);
+    radial-gradient(circle at 6% 8%, rgba(255, 214, 90, 0.14), transparent 22%),
+    radial-gradient(circle at 97% 14%, rgba(128, 105, 255, 0.1), transparent 26%),
+    radial-gradient(circle at 50% 100%, rgba(23, 181, 133, 0.08), transparent 30%),
+    repeating-linear-gradient(0deg, rgba(28, 31, 38, 0.012) 0 1px, transparent 1px 5px);
   content: "";
   pointer-events: none;
 }
@@ -89,11 +94,9 @@ button {
 .detail-panel {
   min-width: 0;
   min-height: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(235, 253, 244, 0.88)),
-    var(--panel);
-  backdrop-filter: blur(18px) saturate(1.15);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  background: var(--panel);
+  backdrop-filter: blur(18px) saturate(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
 }
 
 .sidebar {
@@ -119,22 +122,41 @@ button {
   align-items: center;
 }
 
+/* 샘플 UI의 다크 네비 오마주 — 크림 캔버스에 무게중심을 주는 다크 클레이 프레임 */
 .brandbar {
   justify-content: space-between;
   gap: 14px;
   min-width: 0;
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, #23262d, var(--frame));
+  color: var(--frame-ink);
+  box-shadow:
+    0 16px 30px rgba(25, 27, 32, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
 .brandbar > div {
   min-width: 0;
 }
 
+.brandbar h1 {
+  color: var(--frame-ink);
+}
+
+.brandbar .icon-button {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(145deg, #2e323a, #22252b);
+  color: var(--frame-ink);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
 .eyebrow {
   margin: 0 0 4px;
-  color: #11a77a;
+  color: #4fd6a9;
   font-size: 12px;
   font-weight: 750;
-  letter-spacing: 0;
+  letter-spacing: 0.02em;
 }
 
 h1,
@@ -156,8 +178,8 @@ h1 {
 .primary-button {
   flex: 0 0 auto;
   border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #e8fbf3);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, #ffffff, #f1eee6);
   color: var(--ink);
   box-shadow: var(--shadow-soft);
   transition:
@@ -217,6 +239,7 @@ select:focus-visible {
   min-height: 76px;
 }
 
+/* 샘플의 스탯 칩(26 Total / 2 Completed / 23 Upcoming) 문법: 단색 파스텔 + 큰 검정 숫자 */
 .metric-strip div {
   display: grid;
   align-content: center;
@@ -225,23 +248,24 @@ select:focus-visible {
   min-height: 86px;
   padding: 14px 13px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.66);
-  border-radius: 8px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(232, 255, 244, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
 
 .metric-strip div:nth-child(1) {
-  background: linear-gradient(145deg, #ffffff, #e7f5ff);
+  background: var(--blue-soft);
 }
 
 .metric-strip div:nth-child(2) {
-  background: linear-gradient(145deg, #ffffff, #e4faef);
+  background: var(--green-soft);
 }
 
 .metric-strip div:nth-child(3) {
-  background: linear-gradient(145deg, #ffffff, #fff1cf);
+  border: 1.5px dashed rgba(232, 160, 19, 0.45);
+  background: var(--amber-soft);
+  box-shadow: none;
 }
 
 .metric-strip span {
@@ -270,10 +294,10 @@ select:focus-visible {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  border-radius: 8px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(230, 255, 244, 0.88));
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
 
@@ -305,8 +329,8 @@ select:focus-visible {
 .search-box {
   min-height: 42px;
   border: 1px solid rgba(255, 255, 255, 0.62);
-  border-radius: 8px;
-  background: rgba(245, 255, 250, 0.94);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   box-shadow: var(--shadow-inset);
 }
 
@@ -365,16 +389,13 @@ select:focus-visible {
   box-shadow: 0 8px 14px rgba(255, 131, 82, 0.28);
 }
 
-.metric-strip div:nth-child(1) span {
-  color: var(--blue);
+.metric-strip span {
+  color: var(--ink);
 }
 
-.metric-strip div:nth-child(2) span {
-  color: var(--green);
-}
-
-.metric-strip div:nth-child(3) span {
-  color: var(--amber);
+.metric-strip small {
+  color: rgba(28, 31, 38, 0.55);
+  font-weight: 650;
 }
 
 .property-list {
@@ -422,17 +443,28 @@ select:focus-visible {
   display: grid;
   align-self: start;
   gap: 12px;
-  padding: 15px;
+  padding: 16px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 8px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(238, 255, 247, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease,
     border-color 0.18s ease;
+}
+
+/* 추천 1위는 샘플의 라벤더 포인트 카드처럼 살짝 띄운다 */
+.property-list > article.property-card:first-of-type {
+  background: linear-gradient(160deg, #f1ecff, var(--purple-soft));
+  box-shadow:
+    0 18px 32px rgba(128, 105, 255, 0.18),
+    -5px -5px 14px rgba(255, 255, 255, 0.9);
+}
+
+.property-list > article.property-card:first-of-type .price-grid div {
+  background: rgba(255, 255, 255, 0.66);
 }
 
 .property-card.active {
@@ -498,12 +530,20 @@ select:focus-visible {
   font-weight: 780;
 }
 
+/* D-day 필: 평소엔 다크 칩, 임박(7일 이내)하면 레드 파스텔 */
 .score-pill {
   min-width: 54px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
-  background: linear-gradient(145deg, #ebfff6, #c8f6e4);
-  color: var(--green);
-  box-shadow: 4px 5px 10px rgba(21, 128, 92, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(150deg, #2b2e36, var(--frame));
+  color: var(--frame-ink);
+  box-shadow: 0 8px 14px rgba(25, 27, 32, 0.24);
+}
+
+.score-pill.urgent {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: linear-gradient(145deg, #fff0ed, var(--red-soft));
+  color: #d4483f;
+  box-shadow: 4px 5px 10px rgba(212, 72, 63, 0.16), -3px -3px 8px rgba(255, 255, 255, 0.85);
 }
 
 .price-grid {
@@ -517,10 +557,10 @@ select:focus-visible {
   gap: 5px;
   min-width: 0;
   min-height: 62px;
-  padding: 10px;
+  padding: 10px 12px;
   overflow: hidden;
-  border-radius: 8px;
-  background: rgba(242, 255, 248, 0.86);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   box-shadow: var(--shadow-inset);
 }
 
@@ -551,28 +591,29 @@ select:focus-visible {
   min-width: 0;
 }
 
+/* 샘플의 "Completed 🎉" 필 문법: 단색 파스텔, 그라데이션 없이 */
 .tag {
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.54);
-  background: linear-gradient(145deg, #ffffff, #edf8f3);
-  color: #3a3a3c;
-  box-shadow: 3px 4px 8px rgba(91, 117, 106, 0.12), -2px -2px 6px rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: var(--surface-3);
+  color: #4c5049;
+  box-shadow: 2px 3px 7px rgba(126, 118, 98, 0.12), -2px -2px 5px rgba(255, 255, 255, 0.8);
   text-overflow: ellipsis;
 }
 
 .tag.hot {
-  background: linear-gradient(145deg, #fff4f1, var(--red-soft));
-  color: var(--red);
+  background: var(--red-soft);
+  color: #cf4a41;
 }
 
 .tag.good {
-  background: linear-gradient(145deg, #f2fff8, var(--green-soft));
-  color: var(--green);
+  background: var(--green-soft);
+  color: #0f8f68;
 }
 
 .tag.info {
-  background: linear-gradient(145deg, #ffffff, var(--blue-soft));
+  background: var(--blue-soft);
   color: #2368c7;
 }
 
@@ -610,8 +651,8 @@ select:focus-visible {
   min-height: 0;
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.22) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(0deg, rgba(77, 141, 255, 0.035) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(140deg, #dff7ef 0%, #eefbf6 50%, #fff1db 100%);
+    linear-gradient(0deg, rgba(77, 141, 255, 0.03) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(140deg, #efece4 0%, #f6f4ee 50%, #fdf3e0 100%);
 }
 
 .map-toolbar {
@@ -621,11 +662,10 @@ select:focus-visible {
   min-width: 0;
   padding: 16px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.64);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(232, 255, 244, 0.86));
-  backdrop-filter: blur(18px) saturate(1.12);
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
-  box-shadow: 0 10px 24px rgba(80, 135, 115, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(246, 244, 238, 0.88));
+  backdrop-filter: blur(18px) saturate(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
+  box-shadow: 0 10px 24px rgba(126, 118, 98, 0.1);
 }
 
 .search-box {
@@ -647,8 +687,8 @@ select:focus-visible {
   padding: 0 12px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.66);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #eafcf4);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, #ffffff, #f1eee6);
   color: var(--muted);
   box-shadow: var(--shadow-soft);
   font-size: 12px;
@@ -771,7 +811,7 @@ select:focus-visible {
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.66);
   border-radius: 8px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(232, 255, 244, 0.92));
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(246, 244, 238, 0.92));
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   box-shadow: var(--shadow);
@@ -1247,9 +1287,9 @@ select:focus-visible {
 .load-more {
   width: 100%;
   padding: 10px 12px;
-  border: 1px dashed rgba(83, 108, 98, 0.28);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #e9fff6);
+  border: 1.5px dashed rgba(74, 78, 66, 0.28);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
@@ -1271,9 +1311,9 @@ select:focus-visible {
   width: 100%;
   min-width: 0;
   padding: 13px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.66);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #ebfff6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
   color: var(--ink);
   text-align: left;
@@ -1327,8 +1367,8 @@ select:focus-visible {
   min-height: 34px;
   padding: 0 11px;
   border: 1px solid rgba(255, 255, 255, 0.66);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #e9fff6);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, #ffffff, #f1eee6);
   color: var(--ink);
   box-shadow: var(--shadow-soft);
   font-size: 13px;
@@ -1364,11 +1404,11 @@ select:focus-visible {
   gap: 7px;
   min-width: 0;
   min-height: 78px;
-  padding: 12px;
+  padding: 12px 13px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  border-radius: 8px;
-  background: linear-gradient(145deg, #ffffff, #ecfff6);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
 }
 
@@ -1412,10 +1452,10 @@ select:focus-visible {
   gap: 12px;
   min-height: 54px;
   padding: 11px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
-  background: linear-gradient(145deg, #ffffff, #ecfff6);
-  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
 }
 
 .deal-row > div {

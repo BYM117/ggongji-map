@@ -12,7 +12,8 @@
       }
     </script>
     <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=62klpb47yg&submodules=geocoder&_cb=20260624"></script>
-    <link rel="stylesheet" href="./styles.css?v=20260709-disco-zoom-4" />
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260712-clay-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -30,15 +31,15 @@
         <section class="metric-strip" aria-label="요약 지표">
           <div>
             <span id="metricCount">0</span>
-            <small>표시 물건</small>
+            <small>화면 물건</small>
           </div>
           <div>
-            <span id="metricAvgDiscount">0%</span>
-            <small>공시기준 할인</small>
+            <span id="metricAvgDiscount">0</span>
+            <small>공시가 확인</small>
           </div>
           <div>
             <span id="metricTopScore">0</span>
-            <small>최고 점수</small>
+            <small>입찰 임박</small>
           </div>
         </section>
 
@@ -127,14 +128,14 @@
             <strong class="official-discount"></strong>
           </div>
           <div>
-            <span>실거래 대비</span>
-            <strong class="market-discount"></strong>
+            <span>입찰일</span>
+            <strong class="bid-date"></strong>
           </div>
         </div>
         <div class="tag-row"></div>
       </article>
     </template>
 
-    <script src="./app.js?v=20260709-disco-zoom-4" defer></script>
+    <script src="./app.js?v=20260712-clay-1" defer></script>
   </body>
 </html>

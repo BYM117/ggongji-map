@@ -894,14 +894,32 @@ function sortProperties(items) {
 }
 
 function renderMetrics(items) {
-  const comparableItems = items.filter((item) => item.officialComparable);
-  const avgDiscount = comparableItems.length
-    ? comparableItems.reduce((sum, item) => sum + item.officialDiscount, 0) / comparableItems.length
-    : 0;
-  const topScore = items.length ? Math.max(...items.map((item) => item.score)) : 0;
-  dom.metricCount.textContent = String(items.length);
-  dom.metricAvgDiscount.textContent = comparableItems.length ? formatPercent(avgDiscount) : "-";
-  dom.metricTopScore.textContent = String(topScore);
+  // 화면 물건 수 · 공시가 비교 가능 수 · 7일 내 입찰 임박 수 — 실제 행동에 쓰는 카운트만 보여준다.
+  const comparableCount = items.filter((item) => item.officialComparable).length;
+  const imminentCount = items.filter((item) => {
+    const dday = daysUntil(item.bidDate);
+    return dday !== null && dday >= 0 && dday <= 7;
+  }).length;
+  dom.metricCount.textContent = items.length.toLocaleString("ko-KR");
+  dom.metricAvgDiscount.textContent = comparableCount.toLocaleString("ko-KR");
+  dom.metricTopScore.textContent = imminentCount.toLocaleString("ko-KR");
+}
+
+function daysUntil(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.round((date - today) / 86400000);
+}
+
+function formatDday(value) {
+  const days = daysUntil(value);
+  if (days === null) return "미정";
+  if (days < 0) return "기일지남";
+  if (days === 0) return "오늘";
+  return `D-${days}`;
 }
 
 function renderRecommendationPanel(items) {
@@ -944,14 +962,16 @@ function renderRecommendationPanel(items) {
     caseNode.textContent = item.caseNo;
     caseNode.insertAdjacentHTML("afterbegin", sourceBadge(item));
     node.querySelector("h2").textContent = item.title;
-    node.querySelector(".score-pill").textContent = `${item.score}점`;
+    const dday = daysUntil(item.bidDate);
+    const pill = node.querySelector(".score-pill");
+    pill.textContent = formatDday(item.bidDate);
+    pill.classList.toggle("urgent", dday !== null && dday >= 0 && dday <= 7);
     node.querySelector(".address").textContent = item.address;
     node.querySelector(".min-bid").textContent = formatWon(item.minBid);
     node.querySelector(".official-value").textContent = formatOfficialValue(item);
     node.querySelector(".official-discount").textContent = formatOfficialDiscount(item);
     node.querySelector(".official-discount").className = `official-discount ${officialDiscountTone(item)}`;
-    node.querySelector(".market-discount").textContent = formatSignedPercent(item.marketDiscount);
-    node.querySelector(".market-discount").className = `market-discount ${item.marketDiscount >= 0 ? "positive" : "negative"}`;
+    node.querySelector(".bid-date").textContent = formatDate(item.bidDate);
     node.querySelector(".tag-row").innerHTML = renderTags(item);
     node.addEventListener("click", () => openPropertyDetail(item.id));
     fragment.append(node);
@@ -1002,7 +1022,7 @@ function renderAuctionPanel(items) {
     node.innerHTML = `
       <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
       <strong>${escapeHtml(item.title)}</strong>
-      <span>${formatWon(item.minBid)} · ${formatOfficialDiscount(item)} · ${escapeHtml(item.type)}</span>
+      <span>${formatWon(item.minBid)} · ${formatOfficialDiscount(item)} · ${formatDday(item.bidDate)}</span>
     `;
     node.addEventListener("click", () => openPropertyDetail(item.id));
     list.append(node);
@@ -1046,21 +1066,17 @@ function showRecommendationList() {
 }
 
 function renderTags(item) {
+  // 카드 제목(유형)·리스트 맥락(전부 경매)과 겹치는 태그는 빼고, 판단에 쓰는 3개 이내만 남긴다.
   const tags = [
-    { label: sourceLabel(item), tone: sourceKind(item) },
-    { label: item.type, tone: "info" },
-    { label: `${item.failCount}회 유찰`, tone: item.failCount >= 2 ? "hot" : "" },
-    { label: `위험 ${item.risk}`, tone: item.risk === "낮음" ? "good" : item.risk === "높음" ? "hot" : "" },
-    { label: item.zoning, tone: "" }
+    item.failCount >= 1
+      ? { label: `유찰 ${item.failCount}회`, tone: item.failCount >= 2 ? "hot" : "" }
+      : { label: "신건", tone: "info" },
+    { label: `위험 ${item.risk}`, tone: item.risk === "낮음" ? "good" : item.risk === "높음" ? "hot" : "" }
   ];
-  if (item.officialLandPriceSource || item.publicHousingPriceSource || item.publicStandardPriceSource) {
-    tags.push({ label: item.officialComparable ? `${item.officialBasisShortLabel} 기준` : "토지공시 참고", tone: item.officialComparable ? "good" : "info" });
-  }
-  if (!item.officialComparable) {
-    tags.push({ label: item.officialMissingLabel || "공시기준 필요", tone: "hot" });
-  }
-  if (item.marketDealSource) {
-    tags.push({ label: "서울 실거래가", tone: "info" });
+  if (item.officialComparable) {
+    tags.push({ label: `${item.officialBasisShortLabel} 기준`, tone: "good" });
+  } else {
+    tags.push({ label: "공시가 미확인", tone: "" });
   }
   return tags.map((tag) => `<span class="tag ${tag.tone}">${escapeHtml(tag.label)}</span>`).join("");
 }
@@ -1980,13 +1996,12 @@ function renderInlineDetail(item) {
       <p class="detail-meta">${escapeHtml(item.address)}<br />입찰일 ${formatDate(item.bidDate)} · ${Number(item.failCount) || 0}회 유찰 · ${escapeHtml(item.zoning)}</p>
     </section>
     <section class="detail-grid" aria-label="상세 수치">
-      ${detailStat("추천 점수", `${item.score}점`)}
+      ${detailStat("입찰까지", formatDday(item.bidDate))}
       ${detailStat("최저입찰가", formatWon(item.minBid))}
-      ${detailStat("공시기준", item.officialBasisLabel)}
       ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral")}
       ${detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item))}
-      ${detailStat("실거래 추정가", formatWon(item.marketValue))}
-      ${detailStat("실거래 대비", formatSignedPercent(item.marketDiscount), item.marketDiscount >= 0 ? "positive" : "negative")}
+      ${item.marketValue > 0 ? detailStat("실거래 추정가", formatWon(item.marketValue)) : ""}
+      ${item.marketValue > 0 ? detailStat("실거래 대비", formatSignedPercent(item.marketDiscount), item.marketDiscount >= 0 ? "positive" : "negative") : ""}
       ${item.officialReferenceValue ? detailStat(item.officialReferenceLabel || "토지공시지가 참고", formatWon(item.officialReferenceValue), "neutral") : ""}
       ${item.officialLandPriceSource ? detailStat("토지공시지가", `${item.officialLandPriceYear}년`) : ""}
       ${item.publicHousingPriceSource ? detailStat(item.publicHousingPriceSource, `${item.publicHousingPriceYear}년${item.publicHousingPriceUnit?.dong ? ` · ${item.publicHousingPriceUnit.dong}동` : ""}${item.publicHousingPriceUnit?.ho ? ` ${item.publicHousingPriceUnit.ho}호` : ""}`) : ""}
@@ -1995,7 +2010,7 @@ function renderInlineDetail(item) {
     <section class="detail-section">
       <h3>판단 메모</h3>
       <p class="address">${escapeHtml(item.memo)}</p>
-      <div class="tag-row">${item.checks.map(displayCheckLabel).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
+      <div class="tag-row">${item.checks.map(displayCheckLabel).filter(Boolean).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
     </section>
     <section class="detail-section">
       <h3>인근 실거래 참고</h3>
@@ -2048,7 +2063,10 @@ function detailStat(label, value, tone = "") {
 }
 
 function displayCheckLabel(value) {
-  return String(value || "")
+  const text = String(value || "").trim();
+  // 데이터 파이프라인 내부 사정(API 이름, 정규화 여부)은 사용자 판단에 무의미하므로 숨긴다.
+  if (/^(법원경매 API|주소 정규화|온비드)$/.test(text)) return "";
+  return text
     .replace(/VWorld\s*/gi, "")
     .replace(/주소검색/g, "주소 좌표 확인")
     .replace(/공시지가속성조회/g, "토지공시지가 확인")
