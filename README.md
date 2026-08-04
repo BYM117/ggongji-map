@@ -52,7 +52,7 @@ npm run dev
 ### 1차 배포: Vercel 단독 스냅샷 모드
 
 Vercel에는 꽁지맵 Node 서버와 정적 파일을 올립니다. 법원경매 Python API를 따로 배포하지 않아도
-`data/court-auctions.snapshot.json`에 저장된 좌표 보강 완료 물건을 읽어 지도에 표시할 수 있습니다.
+`data/court-auctions.snapshot.json.gz`에 저장된 좌표 보강 완료 물건을 읽어 지도에 표시할 수 있습니다.
 
 Vercel 환경변수:
 
@@ -62,7 +62,7 @@ SEOUL_REAL_ESTATE_API_KEY=서울시_부동산_실거래가_API_KEY
 ONBID_SERVICE_KEY=온비드_서비스키
 ```
 
-법원경매는 Vercel에서 기본적으로 `data/court-auctions.snapshot.json` 스냅샷을 읽습니다. `ONBID_API_URL`, `COURT_AUCTION_SNAPSHOT_PATH`, `ONBID_DEFAULT_QUERY` 같은 공개 고정값은 코드 기본값을 사용합니다.
+법원경매는 Vercel에서 기본적으로 `data/court-auctions.snapshot.json.gz` 스냅샷을 읽습니다. `ONBID_API_URL`, `COURT_AUCTION_SNAPSHOT_PATH`, `ONBID_DEFAULT_QUERY` 같은 공개 고정값은 코드 기본값을 사용합니다.
 
 ### 이후 배포: 실시간 법원 API 분리
 
