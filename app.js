@@ -211,21 +211,6 @@ async function fetchViewportSource(bounds, source, options = {}) {
   return payload;
 }
 
-async function loadExactCourtViewportProperties(bounds, requestId) {
-  const payload = await fetchViewportSource(bounds, "court", { exactGeocode: "1" });
-  if (requestId !== state.viewportRequestId) return [];
-
-  const incoming = uniquePropertyItems(payload.properties || []);
-  if (!incoming.length) return [];
-
-  properties = mergePropertyUpdates(properties, applyHydrationCache(incoming));
-  populateFilters();
-  render();
-  setDataStatus(`${properties.length.toLocaleString("ko-KR")}개 화면 내 경공매 · 정밀 좌표 반영`, "live");
-  triggerHydration("현재 화면 실데이터", "live");
-  return incoming;
-}
-
 async function loadOnbidViewportProperties(bounds, requestId) {
   const payload = await fetchViewportSource(bounds, "onbid");
   if (requestId !== state.viewportRequestId) return [];
@@ -278,16 +263,6 @@ function triggerHydration(baseLabel, tone) {
         triggerHydration(queued.baseLabel, queued.tone);
       }
     });
-}
-
-function mergePropertyUpdates(currentItems, updates) {
-  const updateMap = new Map(updates.map((item) => [item.id, item]));
-  const merged = currentItems.map((item) => updateMap.get(item.id) || item);
-  const currentIds = new Set(merged.map((item) => item.id));
-  updates.forEach((item) => {
-    if (!currentIds.has(item.id)) merged.push(item);
-  });
-  return merged;
 }
 
 function uniquePropertyItems(items) {
@@ -2075,10 +2050,6 @@ function sourceKind(item) {
   if (source.includes("온비드")) return "onbid";
   if (source.includes("법원")) return "court";
   return "court";
-}
-
-function sourceLabel(item) {
-  return sourceKind(item) === "onbid" ? "온비드 공매" : "법원 경매";
 }
 
 function sourceShortLabel(item) {
