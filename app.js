@@ -5,7 +5,7 @@ const HYDRATION_MAX = 160;
 const LIST_RENDER_LIMIT = 50;
 const LIST_RENDER_STEP = 100;
 const VIEWPORT_FETCH_MARGIN = 0.35;
-const NAVER_MAP_SCRIPT_BASE = "https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=62klpb47yg&submodules=geocoder";
+const NAVER_MAP_SCRIPT_BASE = "https://oapi.map.naver.com/openapi/v3/maps.js";
 const NAVER_MAP_MAX_RETRIES = 4;
 const PROVINCE_CENTERS = {
   "서울특별시": [37.5665, 126.9780],
@@ -28,6 +28,7 @@ const PROVINCE_CENTERS = {
 };
 
 let properties = [];
+let naverMapsClientId = "";
 
 const state = {
   selectedId: null,
@@ -53,6 +54,9 @@ const state = {
   isProgrammaticMove: false,
   mapBootTimer: null,
   viewportTimer: null,
+  searchTimer: null,
+  searchRequestId: 0,
+  globalSearchIds: new Set(),
   viewportRequestId: 0,
   viewportLoading: false,
   viewportQueued: false,
@@ -62,7 +66,8 @@ const state = {
   loadedBounds: null,
   listLimit: LIST_RENDER_LIMIT,
   naverRetryCount: 0,
-  naverRetryTimer: null
+  naverRetryTimer: null,
+  naverScriptLoading: false
 };
 
 const riskOrder = { 낮음: 1, 보통: 2, 높음: 3 };
@@ -95,7 +100,7 @@ function init() {
   populateFilters();
   bindEvents();
   render();
-  bootMapWhenReady();
+  reloadNaverMapScript();
   hydrateExternalProperties();
 }
 
@@ -136,7 +141,8 @@ async function loadViewportProperties({ force = false } = {}) {
 
     const selectedBeforeReload = state.selectedId ? properties.find((item) => item.id === state.selectedId) : null;
     const incoming = applyHydrationCache(uniquePropertyItems(payload.properties || []));
-    properties = preserveSelectedProperty(incoming, selectedBeforeReload);
+    const withSearchResults = preserveGlobalSearchProperties(incoming, properties);
+    properties = preserveSelectedProperty(withSearchResults, selectedBeforeReload);
     state.loadedBounds = fetchBounds;
     state.listLimit = LIST_RENDER_LIMIT;
     if (state.selectedId && !properties.some((item) => item.id === state.selectedId)) {
@@ -179,6 +185,12 @@ async function loadViewportProperties({ force = false } = {}) {
 function preserveSelectedProperty(items, selected) {
   if (!state.selectedId || !selected || items.some((item) => item.id === state.selectedId)) return items;
   return [selected, ...items];
+}
+
+function preserveGlobalSearchProperties(items, previousItems) {
+  if (!state.globalSearchIds.size) return items;
+  const searchResults = previousItems.filter((item) => state.globalSearchIds.has(item.id));
+  return uniquePropertyItems([...searchResults, ...items]);
 }
 
 async function fetchViewportSource(bounds, source, options = {}) {
@@ -615,7 +627,7 @@ function bindEvents() {
   dom.discountFilter.addEventListener("input", (event) => {
     updateFilter("discount", Number(event.target.value));
   });
-  dom.keywordSearch.addEventListener("input", (event) => updateFilter("keyword", event.target.value.trim()));
+  dom.keywordSearch.addEventListener("input", handleKeywordSearchInput);
   dom.resetFilters.addEventListener("click", resetFilters);
   document.addEventListener("click", (event) => {
     const marker = event.target.closest?.(".auction-marker[data-property-id], .dot-marker[data-property-id]");
@@ -624,6 +636,57 @@ function bindEvents() {
     event.stopPropagation();
     openPropertyDetail(marker.dataset.propertyId);
   });
+}
+
+function handleKeywordSearchInput(event) {
+  const query = event.target.value.trim();
+  window.clearTimeout(state.searchTimer);
+  state.searchRequestId += 1;
+  state.globalSearchIds.clear();
+  updateFilter("keyword", query);
+
+  if (query.length < 2) return;
+  const requestId = state.searchRequestId;
+  state.searchTimer = window.setTimeout(() => {
+    searchAllProperties(query, requestId).catch((error) => console.warn("Failed to search all properties", error));
+  }, 300);
+}
+
+async function searchAllProperties(query, requestId) {
+  setDataStatus("전체 매물에서 검색 중", "live");
+  const params = new URLSearchParams({ q: query, limit: "20" });
+
+  try {
+    const response = await fetch(`/api/search-properties?${params.toString()}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (requestId !== state.searchRequestId || state.filters.keyword !== query) return;
+    if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || `HTTP ${response.status}`);
+
+    const incoming = applyHydrationCache(uniquePropertyItems(payload.properties || []));
+    state.globalSearchIds = new Set(incoming.map((item) => item.id));
+    state.listLimit = LIST_RENDER_LIMIT;
+
+    if (!incoming.length) {
+      render();
+      setDataStatus("전체 매물에서 검색 결과 없음", "sample");
+      return;
+    }
+
+    properties = uniquePropertyItems([...incoming, ...properties]);
+    if (incoming.length === 1) {
+      openPropertyDetail(incoming[0].id);
+      setDataStatus("전체 검색 결과 1개", "live");
+    } else {
+      state.selectedId = null;
+      state.sidebarMode = "recommendations";
+      render();
+      setDataStatus(`전체 검색 결과 ${incoming.length.toLocaleString("ko-KR")}개 · 법원 확인 필요`, "live");
+    }
+  } catch (error) {
+    if (requestId !== state.searchRequestId) return;
+    console.warn("Failed to search all properties", error);
+    setDataStatus("전체 매물 검색 실패", "sample");
+  }
 }
 
 function updateFilter(key, value) {
@@ -646,6 +709,9 @@ function resetFilters() {
   };
   state.selectedId = null;
   state.sidebarMode = "recommendations";
+  window.clearTimeout(state.searchTimer);
+  state.searchRequestId += 1;
+  state.globalSearchIds.clear();
   state.listLimit = LIST_RENDER_LIMIT;
   dom.regionFilter.value = "all";
   dom.typeFilter.value = "all";
@@ -677,6 +743,11 @@ function includeSelectedMapItem(items, enrichedItems) {
 
 function getVisibleProperties(items) {
   const filtered = items.filter(matchesFilters);
+  const globalSearchItems = state.filters.keyword && state.globalSearchIds.size
+    ? filtered.filter((item) => state.globalSearchIds.has(item.id))
+    : [];
+  if (globalSearchItems.length) return sortProperties(globalSearchItems);
+
   // 경계값은 한 번만 구해서 물건마다 숫자 비교만 한다. (물건당 SDK 호출 금지)
   const bounds = state.mapBoundsOnly && state.naverLoaded && state.map ? currentMapBounds() : null;
   const viewportItems = bounds
@@ -866,7 +937,9 @@ function matchesFilters(item) {
   let matchesKeyword = true;
   if (keyword) {
     const text = item._searchText || (item._searchText = `${item.title} ${item.address} ${item.caseNo} ${item.memo}`.toLowerCase());
-    matchesKeyword = text.includes(keyword);
+    const compactKeyword = compactSearchText(keyword);
+    const compactText = item._compactSearchText || (item._compactSearchText = compactSearchText(text));
+    matchesKeyword = text.includes(keyword) || compactText.includes(compactKeyword);
   }
   const riskLimit = state.filters.risk === "all" ? Infinity : riskOrder[state.filters.risk];
   const matchesDiscount =
@@ -879,6 +952,13 @@ function matchesFilters(item) {
     matchesDiscount &&
     matchesKeyword
   );
+}
+
+function compactSearchText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s\-‐‑‒–—―·]/g, "");
 }
 
 function sortProperties(items) {
@@ -941,7 +1021,7 @@ function renderRecommendationPanel(items) {
     `<div class="list-panel-header">
       <div>
         <strong>추천 물건</strong>
-        <span>현재 지도 화면 기준</span>
+        <span>${state.filters.keyword && state.globalSearchIds.size ? "전체 매물 검색 결과" : "현재 지도 화면 기준"}</span>
       </div>
     </div>`
   );
@@ -998,11 +1078,12 @@ function appendLoadMoreButton(container, totalCount) {
 
 function renderAuctionPanel(items) {
   const sourceCounts = countSources(items);
+  const scopeLabel = state.filters.keyword && state.globalSearchIds.size ? "전체 검색" : "현재 지도 화면 안";
   dom.detail.innerHTML = `
     <div class="list-panel-header">
       <div>
         <strong>경공매 물건</strong>
-        <span>현재 지도 화면 안 ${items.length}개 · 경매 ${sourceCounts.court} · 공매 ${sourceCounts.onbid}</span>
+        <span>${scopeLabel} ${items.length}개 · 경매 ${sourceCounts.court} · 공매 ${sourceCounts.onbid}</span>
       </div>
     </div>
   `;
@@ -1275,9 +1356,29 @@ function scheduleNaverMapRetry() {
   }, delay);
 }
 
-function reloadNaverMapScript() {
+async function reloadNaverMapScript() {
   if (window.naver?.maps) {
     bootMapWhenReady();
+    return;
+  }
+  if (state.naverScriptLoading) return;
+
+  state.naverScriptLoading = true;
+
+  try {
+    if (!naverMapsClientId) {
+      const response = await fetch("/api/client-config", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok || !payload.naverMapsClientId) {
+        throw new Error("NAVER_MAPS_CLIENT_ID is not configured");
+      }
+      naverMapsClientId = payload.naverMapsClientId;
+    }
+  } catch (error) {
+    state.naverScriptLoading = false;
+    setDataStatus("네이버 지도 설정 확인 필요", "sample");
+    console.warn("Failed to load Naver Maps client config", error);
+    scheduleNaverMapRetry();
     return;
   }
 
@@ -1285,10 +1386,21 @@ function reloadNaverMapScript() {
   document.querySelectorAll('script[src*="oapi.map.naver.com/openapi/v3/maps-geocoder"]').forEach((script) => script.remove());
 
   const script = document.createElement("script");
-  script.src = `${NAVER_MAP_SCRIPT_BASE}&_retry=${Date.now()}`;
+  const params = new URLSearchParams({
+    ncpKeyId: naverMapsClientId,
+    submodules: "geocoder",
+    _retry: String(Date.now())
+  });
+  script.src = `${NAVER_MAP_SCRIPT_BASE}?${params.toString()}`;
   script.async = true;
-  script.onload = () => bootMapWhenReady();
-  script.onerror = () => scheduleNaverMapRetry();
+  script.onload = () => {
+    state.naverScriptLoading = false;
+    bootMapWhenReady();
+  };
+  script.onerror = () => {
+    state.naverScriptLoading = false;
+    scheduleNaverMapRetry();
+  };
   document.head.append(script);
 }
 
@@ -1346,6 +1458,7 @@ function handleMapIdle() {
       state.suppressNextIdleFetch = false;
       return;
     }
+    if (state.filters.keyword && state.globalSearchIds.size) return;
     if (!state.isProgrammaticMove) {
       loadViewportProperties().catch((error) => console.warn("Failed to refresh viewport properties", error));
     }

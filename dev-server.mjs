@@ -11,7 +11,11 @@ import { fetchGeocode, fetchHousingPrice, fetchLandPrice, fetchParcelBoundary } 
 import { fetchOfficetelPrice } from "./lib/officetel.mjs";
 import { fetchSeoulDeals } from "./lib/seoul.mjs";
 import { fetchOnbid, fetchOnbidProperties, fetchOnbidViewportProperties, onbidEndpoint } from "./lib/onbid.mjs";
-import { fetchCourtAuctionProperties, fetchCourtAuctionViewportProperties } from "./lib/court.mjs";
+import {
+  fetchCourtAuctionProperties,
+  fetchCourtAuctionViewportProperties,
+  searchCourtAuctionProperties
+} from "./lib/court.mjs";
 
 const host = process.env.HOST || (process.env.VERCEL ? "0.0.0.0" : "127.0.0.1");
 const port = Number(process.env.PORT || 4173);
@@ -98,6 +102,16 @@ if (entryHref === import.meta.url) {
 
 async function handleApi(url, response) {
   try {
+    if (url.pathname === "/api/client-config") {
+      const naverMapsClientId = String(process.env.NAVER_MAPS_CLIENT_ID || "").trim();
+      if (!naverMapsClientId) {
+        sendJson(response, 503, { ok: false, error: "missing_naver_maps_client_id" });
+        return;
+      }
+      sendJson(response, 200, { ok: true, naverMapsClientId });
+      return;
+    }
+
     if (url.pathname === "/api/properties") {
       const payload = await readExternalProperties();
       sendJson(response, 200, payload);
@@ -148,6 +162,12 @@ async function handleApi(url, response) {
 
     if (url.pathname === "/api/court-auctions") {
       const payload = await fetchCourtAuctionProperties(url.searchParams);
+      sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/search-properties") {
+      const payload = await searchCourtAuctionProperties(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
       return;
     }
