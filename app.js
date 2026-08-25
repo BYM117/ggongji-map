@@ -2146,7 +2146,7 @@ function renderDetailPhotos(detail, loading) {
         .map(
           (photo, index) => `
         <button class="detail-photo" type="button" data-photo="${escapeHtml(photo.url)}" aria-label="${escapeHtml(photo.label || `사진 ${index + 1}`)} 크게 보기">
-          <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.label || "현장 사진")}" loading="lazy" />
+          <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.label || "현장 사진")}" decoding="async" />
         </button>`
         )
         .join("")}
