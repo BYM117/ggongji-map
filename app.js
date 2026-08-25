@@ -50,6 +50,9 @@ const state = {
   naverLoaded: false,
   mapBoundsOnly: true,
   sidebarMode: "recommendations",
+  detailOpen: false,
+  detailData: null,
+  detailLoadingId: "",
   hasUserMovedMap: false,
   isProgrammaticMove: false,
   mapBootTimer: null,
@@ -705,7 +708,7 @@ function render() {
 
   renderMetrics(visible);
   renderRecommendationPanel(visible);
-  renderAuctionPanel(visible);
+  renderDetailPanel(enriched);
   renderMap(mapItems);
   renderSelectedParcelBoundary(enriched.find((item) => item.id === state.selectedId) || null);
 }
@@ -980,17 +983,6 @@ function formatDday(value) {
 function renderRecommendationPanel(items) {
   dom.list.innerHTML = "";
 
-  if (state.sidebarMode === "detail") {
-    const selectedRaw = properties.find((item) => item.id === state.selectedId);
-    const selected = (selectedRaw && enrichProperty(selectedRaw)) || items[0];
-    if (!selected) {
-      state.sidebarMode = "recommendations";
-    } else {
-      renderInlineDetail(selected);
-      return;
-    }
-  }
-
   dom.list.insertAdjacentHTML(
     "beforeend",
     `<div class="list-panel-header">
@@ -1051,40 +1043,24 @@ function appendLoadMoreButton(container, totalCount) {
   container.append(button);
 }
 
-function renderAuctionPanel(items) {
-  const sourceCounts = countSources(items);
-  const scopeLabel = state.filters.keyword && state.globalSearchIds.size ? "전체 검색" : "현재 지도 화면 안";
-  dom.detail.innerHTML = `
-    <div class="list-panel-header">
-      <div>
-        <strong>경공매 물건</strong>
-        <span>${scopeLabel} ${items.length}개 · 경매 ${sourceCounts.court} · 공매 ${sourceCounts.onbid}</span>
-      </div>
-    </div>
-  `;
+// 우측 슬라이드 패널: 물건을 고르면 상세가 밀려 들어온다.
+// 목록은 좌측 하나로 충분해서, 예전의 "경공매 물건" 중복 리스트는 없앴다.
+function renderDetailPanel(enrichedItems) {
+  const panel = dom.detail;
+  const selected = state.selectedId
+    ? enrichedItems.find((item) => item.id === state.selectedId)
+    : null;
+  const open = Boolean(state.detailOpen && selected);
 
-  if (!items.length) {
-    dom.detail.insertAdjacentHTML("beforeend", `<p class="address">현재 지도 화면에 표시할 물건이 없습니다.</p>`);
+  panel.classList.toggle("open", open);
+  panel.setAttribute("aria-hidden", open ? "false" : "true");
+
+  if (!open) {
+    panel.innerHTML = "";
     return;
   }
 
-  const list = document.createElement("div");
-  list.className = "compact-list";
-  const ordered = interleaveSourceItems(items);
-  ordered.slice(0, state.listLimit).forEach((item) => {
-    const node = document.createElement("button");
-    node.type = "button";
-    node.className = `compact-card source-${sourceKind(item)} ${item.id === state.selectedId ? "active" : ""}`;
-    node.innerHTML = `
-      <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
-      <strong>${escapeHtml(item.title)}</strong>
-      <span>${formatWon(item.minBid)} · ${formatOfficialDiscount(item)} · ${formatDday(item.bidDate)}</span>
-    `;
-    node.addEventListener("click", () => openPropertyDetail(item.id));
-    list.append(node);
-  });
-  appendLoadMoreButton(list, ordered.length);
-  dom.detail.append(list);
+  renderPropertyDetail(selected);
 }
 
 function interleaveSourceItems(items) {
@@ -1112,13 +1088,39 @@ function countSources(items) {
 }
 
 function openPropertyDetail(id) {
-  state.sidebarMode = "detail";
+  state.detailOpen = true;
+  // 다른 물건으로 갈아타면 이전 상세는 버린다(잔상 방지).
+  if (state.selectedId !== id) state.detailData = null;
   selectProperty(id);
+  loadPropertyDetail(id);
 }
 
-function showRecommendationList() {
-  state.sidebarMode = "recommendations";
+function closeDetailPanel() {
+  state.detailOpen = false;
+  state.detailData = null;
+  state.selectedId = null;
   render();
+}
+
+// 클릭한 물건의 상세(사진·문서·사건 원문)를 크롤러 API에서 가져온다.
+async function loadPropertyDetail(id) {
+  if (!id) return;
+  state.detailLoadingId = id;
+  render();
+
+  try {
+    const response = await fetch(`/api/court-auction-detail?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+    const payload = response.ok ? await response.json() : null;
+    // 그 사이 다른 물건을 눌렀으면 늦게 온 응답은 버린다.
+    if (state.selectedId !== id) return;
+    state.detailData = payload && payload.ok ? payload.detail : null;
+  } catch (error) {
+    console.warn("Failed to load property detail", error);
+    if (state.selectedId === id) state.detailData = null;
+  } finally {
+    if (state.detailLoadingId === id) state.detailLoadingId = "";
+    render();
+  }
 }
 
 function renderTags(item) {
@@ -2060,17 +2062,21 @@ function sourceBadge(item) {
   return `<span class="source-badge ${sourceKind(item)}">${sourceShortLabel(item)}</span> `;
 }
 
-function renderInlineDetail(item) {
+function renderPropertyDetail(item) {
   if (!item) {
-    dom.list.innerHTML = `<p class="address">선택된 물건이 없습니다.</p>`;
+    dom.detail.innerHTML = `<p class="address">선택된 물건이 없습니다.</p>`;
     return;
   }
 
-  dom.list.innerHTML = `
+  const detail = state.detailData && state.detailData.id === item.id ? state.detailData : null;
+  const loading = state.detailLoadingId === item.id;
+
+  dom.detail.innerHTML = `
     <div class="detail-nav">
-      <button class="back-button" type="button" id="backToRecommendations">‹ 리스트</button>
+      <button class="back-button" type="button" id="closeDetailPanel">✕ 닫기</button>
       <span class="case-no">${escapeHtml(item.caseNo)}</span>
     </div>
+    ${renderDetailPhotos(detail, loading)}
     <section class="detail-header">
       <div class="risk-row">
         <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
@@ -2117,13 +2123,151 @@ function renderInlineDetail(item) {
         }
       </div>
     </section>
+    ${renderCourtDetailSections(detail, loading)}
     <div class="source-row">
       <span>데이터 출처</span>
       <strong>${escapeHtml(item.source)}</strong>
     </div>
   `;
 
-  document.querySelector("#backToRecommendations")?.addEventListener("click", showRecommendationList);
+  document.querySelector("#closeDetailPanel")?.addEventListener("click", closeDetailPanel);
+  bindPhotoViewer();
+}
+
+// 현장 사진 — 상세의 첫인상이라 맨 위에 크게 놓는다.
+function renderDetailPhotos(detail, loading) {
+  if (loading && !detail) return `<div class="detail-photos skeleton" aria-hidden="true"></div>`;
+  const photos = (detail && detail.photos) || [];
+  if (!photos.length) return "";
+
+  return `
+    <div class="detail-photos" role="group" aria-label="현장 사진">
+      ${photos
+        .map(
+          (photo, index) => `
+        <button class="detail-photo" type="button" data-photo="${escapeHtml(photo.url)}" aria-label="${escapeHtml(photo.label || `사진 ${index + 1}`)} 크게 보기">
+          <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.label || "현장 사진")}" loading="lazy" />
+        </button>`
+        )
+        .join("")}
+    </div>`;
+}
+
+// 법원 원문에서 온 것들: 사건 정보 · 문서 · 지분 · 위험 플래그
+function renderCourtDetailSections(detail, loading) {
+  if (loading && !detail) {
+    return `<section class="detail-section"><p class="address">상세 정보를 불러오는 중입니다…</p></section>`;
+  }
+  if (!detail) return "";
+
+  const sections = [];
+
+  if (detail.share && detail.share.isShareSale) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>지분 매각 주의</h3>
+        <p class="address">전체가 아닌 지분만 매각됩니다${detail.share.fraction ? ` (지분 ${escapeHtml(detail.share.fraction)})` : ""}. 단독 사용·처분이 어려울 수 있습니다.</p>
+      </section>`);
+  }
+
+  const flags = (detail.screening && detail.screening.flags) || [];
+  if (flags.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>권리 체크</h3>
+        <div class="tag-row">${flags.map((flag) => `<span class="tag hot">${escapeHtml(flag)}</span>`).join("")}</div>
+      </section>`);
+  }
+
+  const documents = detail.documents || [];
+  if (documents.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>법원 문서</h3>
+        <div class="doc-list">
+          ${documents
+            .map(
+              (doc) => `
+            <div class="doc-row">
+              <div>
+                <strong>${escapeHtml(doc.type)}</strong>
+                ${doc.preview ? `<p class="doc-preview">${escapeHtml(doc.preview.slice(0, 140))}…</p>` : ""}
+              </div>
+              ${doc.sourceUrl ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문</a>` : ""}
+            </div>`
+            )
+            .join("")}
+        </div>
+      </section>`);
+  }
+
+  const caseRows = pickCaseRows(detail.caseTables);
+  if (caseRows.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>사건 정보</h3>
+        <div class="case-list">
+          ${caseRows.map((row) => `
+            <div class="case-row">
+              <span>${escapeHtml(row[0])}</span>
+              <strong>${escapeHtml(row[1])}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  if (detail.auction && detail.auction.detailUrl) {
+    sections.push(`
+      <section class="detail-section">
+        <a class="court-link" href="${escapeHtml(detail.auction.detailUrl)}" target="_blank" rel="noopener noreferrer">법원경매정보에서 원문 보기 ↗</a>
+      </section>`);
+  }
+
+  return sections.join("");
+}
+
+// 사건 테이블은 14개까지 오는데 대부분 빈 행이라, 값이 있는 핵심 항목만 고른다.
+const CASE_ROW_KEYS = ["사건번호", "사건명", "접수일자", "개시결정일자", "청구금액", "담당계", "종국결과", "배당요구종기"];
+
+function pickCaseRows(tables) {
+  if (!Array.isArray(tables)) return [];
+  const picked = [];
+  const seen = new Set();
+
+  tables.forEach((table) => {
+    (table.rows || []).forEach((row) => {
+      // 원문 행은 [라벨, 값, 라벨, 값] 형태로 두 쌍이 붙어 오기도 한다.
+      for (let index = 0; index + 1 < row.length; index += 2) {
+        const label = String(row[index] || "").trim();
+        const value = String(row[index + 1] || "").trim();
+        if (!label || !value || seen.has(label)) continue;
+        if (!CASE_ROW_KEYS.includes(label)) continue;
+        seen.add(label);
+        // 담당계는 안내문이 길게 붙어 온다. 전화번호까지만 남긴다.
+        picked.push([label, label === "담당계" ? value.split("(")[0].trim() : value]);
+      }
+    });
+  });
+
+  return picked;
+}
+
+// 사진 클릭 시 원본 크기로 확대
+function bindPhotoViewer() {
+  dom.detail.querySelectorAll(".detail-photo").forEach((button) => {
+    button.addEventListener("click", () => openPhotoViewer(button.dataset.photo));
+  });
+}
+
+function openPhotoViewer(url) {
+  if (!url) return;
+  document.querySelector(".photo-viewer")?.remove();
+
+  const viewer = document.createElement("div");
+  viewer.className = "photo-viewer";
+  viewer.innerHTML = `<img src="${escapeHtml(url)}" alt="현장 사진 확대" /><button type="button" class="photo-close" aria-label="닫기">✕</button>`;
+  viewer.addEventListener("click", () => viewer.remove());
+  document.body.append(viewer);
 }
 
 function formatDealMeta(deal) {

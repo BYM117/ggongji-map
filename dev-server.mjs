@@ -9,6 +9,7 @@ import { parseViewportBounds } from "./lib/geo.mjs";
 import { normalizeProperty } from "./lib/normalize.mjs";
 import { fetchGeocode, fetchHousingPrice, fetchLandPrice, fetchParcelBoundary } from "./lib/vworld.mjs";
 import { fetchOfficetelPrice } from "./lib/officetel.mjs";
+import { fetchCourtAuctionDetail, proxyCourtAuctionAsset } from "./lib/court-detail.mjs";
 import { fetchSeoulDeals } from "./lib/seoul.mjs";
 import { fetchOnbid, fetchOnbidProperties, fetchOnbidViewportProperties, onbidEndpoint } from "./lib/onbid.mjs";
 import {
@@ -157,6 +158,17 @@ async function handleApi(url, response) {
     if (url.pathname === "/api/onbid-properties") {
       const payload = await fetchOnbidProperties(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/court-auction-detail") {
+      const payload = await fetchCourtAuctionDetail(url.searchParams);
+      sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/court-auction-asset") {
+      await proxyCourtAuctionAsset(url.searchParams, response);
       return;
     }
 

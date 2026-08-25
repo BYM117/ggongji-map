@@ -82,8 +82,10 @@ button {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 392px minmax(520px, 1fr) 408px;
+  /* 우측 상세는 그리드 칸이 아니라 지도 위로 미끄러져 들어오는 오버레이다. */
+  grid-template-columns: 392px minmax(520px, 1fr);
   width: 100%;
   height: 100vh;
   min-height: 720px;
@@ -1268,14 +1270,207 @@ select:focus-visible {
 }
 
 .detail-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 40;
   display: grid;
   align-content: start;
   gap: 16px;
+  width: min(440px, 92vw);
+  height: 100%;
   padding: 20px;
   border-left: 1px solid rgba(255, 255, 255, 0.58);
-  box-shadow: inset 1px 0 0 rgba(83, 108, 98, 0.08);
+  box-shadow: -18px 0 40px rgba(126, 118, 98, 0.18);
   overflow: auto;
   scrollbar-width: thin;
+  /* 닫힌 상태: 화면 밖에서 대기. transform이라 리플로우 없이 부드럽다. */
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), visibility 0.32s;
+}
+
+.detail-panel.open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-panel {
+    transition: none;
+  }
+}
+
+/* 현장 사진 — 가로 스크롤 스트립 */
+.detail-photos {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 78%;
+  gap: 8px;
+  /* 부모가 align-content:start라 행 높이를 콘텐츠에서 못 받는다. 명시해 준다. */
+  height: 180px;
+  margin: -4px -20px 0;
+  padding: 4px 20px 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+
+.detail-photos.skeleton {
+  grid-auto-columns: 78%;
+  height: 168px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface-3) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%;
+  animation: detail-shimmer 1.2s linear infinite;
+}
+
+@keyframes detail-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.detail-photo {
+  display: block;
+  padding: 0;
+  height: 168px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-soft);
+  scroll-snap-align: start;
+  transition: transform 0.18s ease;
+}
+
+.detail-photo:hover {
+  transform: translateY(-2px);
+}
+
+.detail-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 확대 뷰어 */
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(20, 22, 26, 0.82);
+  backdrop-filter: blur(6px);
+  cursor: zoom-out;
+  animation: photo-fade 0.18s ease;
+}
+
+@keyframes photo-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.photo-viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.photo-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+/* 법원 문서 */
+.doc-list,
+.case-list {
+  display: grid;
+  gap: 8px;
+}
+
+.doc-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-inset);
+}
+
+.doc-row strong {
+  font-size: 13px;
+}
+
+.doc-preview {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.doc-link,
+.court-link {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #2368c7;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.court-link {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+/* 사건 정보 */
+.case-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.case-row span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.case-row strong {
+  min-width: 0;
+  font-size: 13px;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .compact-list {
