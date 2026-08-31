@@ -1,39 +1,54 @@
 :root {
-  /* 샘플 UI 기준: 중립 크림 캔버스 + 흰 카드 + 파스텔 포인트 + 다크 프레임 */
-  --bg: #f3f1ea;
-  --panel: rgba(250, 249, 245, 0.92);
-  --surface: #ffffff;
-  --surface-2: #f6f4ee;
-  --surface-3: #efece4;
-  --frame: #191b20;
-  --frame-ink: #f7f6f2;
-  --ink: #1c1f26;
-  --muted: #757a72;
-  --soft: #9b9f96;
-  --line: rgba(74, 78, 66, 0.1);
-  --line-strong: rgba(74, 78, 66, 0.2);
-  --blue: #4d8dff;
-  --blue-soft: #e3efff;
-  --green: #17b585;
-  --green-soft: #ddf5e9;
-  --red: #f26b62;
-  --red-soft: #ffe6e2;
-  --amber: #e8a013;
-  --amber-soft: #fdf0cd;
-  --orange: #ff8352;
-  --orange-soft: #ffe8d9;
-  --purple: #8069ff;
-  --purple-soft: #ece7ff;
-  --yellow: #ffd65a;
-  --radius-lg: 22px;
-  --radius-md: 16px;
-  --radius-sm: 12px;
-  --clay-highlight: rgba(255, 255, 255, 0.95);
-  --clay-shadow: rgba(126, 118, 98, 0.2);
-  --shadow: 0 20px 38px rgba(126, 118, 98, 0.2), -6px -6px 18px rgba(255, 255, 255, 0.85);
-  --shadow-soft: 0 10px 22px rgba(126, 118, 98, 0.14), -4px -4px 14px rgba(255, 255, 255, 0.85);
-  --shadow-pop: 0 18px 32px rgba(77, 141, 255, 0.16), 0 8px 18px rgba(23, 181, 133, 0.1);
-  --shadow-inset: inset 4px 4px 10px rgba(126, 118, 98, 0.12), inset -5px -5px 12px rgba(255, 255, 255, 0.94);
+  /* 시안 D · 계량 — 회백 바탕 + 먹빛 잉크 + 신호 오렌지 한 색.
+     색으로 좋고 나쁨을 말하지 않는다. 판단은 게이지 길이와 유찰 도트가 맡는다. */
+  --bg: #e8e6e1;
+  --panel: rgba(245, 244, 241, 0.94);
+  --surface: #f5f4f1;
+  --surface-2: #edebe6;
+  --surface-3: #e4e2dc;
+  --frame: #211e1b;
+  --frame-ink: #f5f4f1;
+  --ink: #211e1b;
+  --muted: #6b665d;
+  --soft: #8a857d;
+  --line: rgba(33, 30, 27, 0.15);
+  --line-strong: rgba(33, 30, 27, 0.3);
+
+  /* 신호는 오렌지 하나. 임박·선택·게이지 채움에만 쓴다. */
+  --signal: #ee5a0e;
+  --signal-deep: #c4400a;
+  --signal-soft: rgba(238, 90, 14, 0.15);
+  --track: rgba(33, 30, 27, 0.11);
+
+  /* 기존 이름은 전부 D 팔레트로 다시 가리킨다 — 초록/파랑/보라 계열은 먹빛으로 수렴. */
+  --blue: #211e1b;
+  --blue-soft: rgba(33, 30, 27, 0.07);
+  --green: #211e1b;
+  --green-soft: rgba(33, 30, 27, 0.07);
+  --red: #c4400a;
+  --red-soft: rgba(238, 90, 14, 0.15);
+  --amber: #ee5a0e;
+  --amber-soft: rgba(238, 90, 14, 0.15);
+  --orange: #ee5a0e;
+  --orange-soft: rgba(238, 90, 14, 0.15);
+  --purple: #8a857d;
+  --purple-soft: rgba(33, 30, 27, 0.06);
+  --yellow: #ee5a0e;
+
+  --radius-lg: 20px;
+  --radius-md: 12px;
+  --radius-sm: 6px;
+
+  /* 그림자 4종 → 2종. 경계는 선으로 말한다. */
+  --clay-highlight: transparent;
+  --clay-shadow: rgba(33, 30, 27, 0.1);
+  --shadow: 0 1px 3px rgba(33, 30, 27, 0.1), 0 10px 26px rgba(33, 30, 27, 0.08);
+  --shadow-soft: 0 1px 2px rgba(33, 30, 27, 0.07);
+  --shadow-pop: 0 1px 3px rgba(33, 30, 27, 0.1), 0 10px 26px rgba(33, 30, 27, 0.08);
+  --shadow-inset: none;
+
+  --font-display: "Archivo", "Pretendard Variable", Pretendard, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-family:
     "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
     Inter, "Segoe UI", sans-serif;
@@ -62,11 +77,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(circle at 6% 8%, rgba(255, 214, 90, 0.14), transparent 22%),
-    radial-gradient(circle at 97% 14%, rgba(128, 105, 255, 0.1), transparent 26%),
-    radial-gradient(circle at 50% 100%, rgba(23, 181, 133, 0.08), transparent 30%),
-    repeating-linear-gradient(0deg, rgba(28, 31, 38, 0.012) 0 1px, transparent 1px 5px);
+  background: repeating-linear-gradient(0deg, rgba(33, 30, 27, 0.014) 0 1px, transparent 1px 5px);
   content: "";
   pointer-events: none;
 }
@@ -1792,4 +1803,887 @@ select:focus-visible {
   .detail-stat strong {
     white-space: normal;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   시안 D · 계량 — 컴포넌트 레이어
+   원칙 1. 색으로 좋고 나쁨을 말하지 않는다. 할인율은 항상 중립 먹빛.
+   원칙 2. 오렌지는 "지금 봐야 할 것"에만 — 입찰 임박, 선택 상태, 게이지 채움.
+   원칙 3. 판단 근거는 게이지 길이와 유찰 도트가 낸다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 버튼 · 입력: 클레이 그림자 제거, 경계는 선으로 ── */
+.icon-button,
+.primary-button,
+.back-button,
+.load-more {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.primary-button {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--frame-ink);
+}
+
+.icon-button:hover,
+.primary-button:hover,
+.back-button:hover,
+.load-more:hover,
+.property-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.filters select,
+.search-box,
+.filters input[type="range"]::-webkit-slider-runnable-track {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.filters output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.filters input[type="range"]::-webkit-slider-thumb,
+.filters input[type="range"]::-moz-range-thumb {
+  border: 1px solid var(--ink);
+  background: var(--signal);
+  box-shadow: none;
+}
+
+/* ── 요약 지표: 카드 3장(세로 260px) → 한 줄(44px) ── */
+.metric-strip {
+  min-height: 0;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.metric-strip div,
+.metric-strip div:nth-child(1),
+.metric-strip div:nth-child(2),
+.metric-strip div:nth-child(3) {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.metric-strip div:last-child {
+  border-right: 0;
+}
+
+.metric-strip span {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  font-variation-settings: "wdth" 110;
+  letter-spacing: -0.03em;
+}
+
+.metric-strip small {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: -0.01em;
+}
+
+/* ── 목록 행: 2×2 가격 그리드(190px) → 압축 행 ── */
+.property-card {
+  gap: 5px;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.property-list > article.property-card:first-of-type,
+.property-list > article.property-card:first-of-type .price-grid div {
+  background: transparent;
+  box-shadow: none;
+}
+
+.property-card:hover {
+  background: rgba(33, 30, 27, 0.035);
+}
+
+.property-card.active {
+  border-left-color: var(--signal);
+  background: var(--signal-soft);
+  box-shadow: none;
+}
+
+.property-card.source-court,
+.property-card.source-onbid {
+  box-shadow: none;
+}
+
+.property-card > .card-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.property-card .case-no {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 제목과 주소를 한 줄에 — 유형만으로는 물건이 구분되지 않고, 주소가 실제 식별자다. */
+.title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.property-card h2 {
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.property-card .address {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: none;
+}
+
+.property-card .address::before {
+  content: "· ";
+  color: var(--line-strong);
+}
+
+/* 유찰 도트와 태그를 마지막 한 줄에 모은다 */
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.meta-row .fail-row {
+  flex: none;
+}
+
+.meta-row .tag-row {
+  display: flex;
+  flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  justify-content: flex-end;
+}
+
+.meta-row .dots {
+  flex-wrap: nowrap;
+}
+
+/* D-day: 임박할 때만 오렌지. 그 외에는 조용한 회색 칩. */
+.score-pill {
+  min-width: 0;
+  min-height: 21px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(33, 30, 27, 0.06);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.score-pill.urgent {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: #211e1b;
+  box-shadow: none;
+}
+
+/* ── 숫자 행: 최저입찰가 · 공시기준가 · 할인율 ── */
+.num-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.num-row .min-bid {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  font-variation-settings: "wdth" 110;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.num-row .official-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 할인율에 색을 쓰지 않는 것이 이 시안의 핵심이다. */
+.num-row .official-discount {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.num-row .official-discount.neutral {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── 게이지: 공시기준가 대비 남은 값의 크기 ── */
+.gauge-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.gauge {
+  display: flex;
+  height: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.gauge i {
+  display: block;
+  flex: none;
+  background: var(--signal);
+}
+
+.gauge-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── 유찰 도트: 개수 자체가 신호다 ── */
+.fail-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2.5px;
+  align-items: center;
+}
+
+.dots i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.dots em {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-style: normal;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.fail-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fail-row.heavy .fail-label {
+  color: var(--signal-deep);
+  font-weight: 600;
+}
+
+/* ── 태그: 파스텔 칩 → 먹빛 외곽선 ── */
+.tag {
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.tag.hot {
+  border-color: var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tag.good,
+.tag.info {
+  border-color: var(--line);
+  background: rgba(33, 30, 27, 0.05);
+  color: var(--muted);
+}
+
+.tag-row {
+  gap: 5px;
+}
+
+.tag.court,
+.tag.onbid,
+.source-badge.court,
+.source-badge.onbid {
+  background: transparent;
+  color: var(--muted);
+}
+
+.source-badge {
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  vertical-align: -1px;
+}
+
+/* ── 지도 마커: 밝은 네이버 지도 위에서 살아남으려면 어두워야 한다 ── */
+.auction-marker,
+.fallback-marker {
+  min-width: 0;
+  min-height: 0;
+  padding: 5px 9px 6px;
+  border: 1px solid var(--pin-color);
+  border-radius: 8px;
+  background: var(--pin-color);
+  color: #f5f4f1;
+  box-shadow: 0 2px 6px rgba(33, 30, 27, 0.28);
+}
+
+.auction-marker strong,
+.fallback-marker strong {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #f5f4f1;
+}
+
+.auction-marker small,
+.fallback-marker small,
+.auction-marker-source {
+  color: rgba(245, 244, 241, 0.72);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+}
+
+.auction-marker::after,
+.fallback-marker::after {
+  width: 7px;
+  height: 7px;
+  bottom: -5px;
+  border: 1px solid #f5f4f1;
+  background: var(--pin-color);
+  box-shadow: none;
+}
+
+.auction-marker.active,
+.dot-marker.active {
+  box-shadow: 0 0 0 3px rgba(238, 90, 14, 0.28), 0 2px 8px rgba(33, 30, 27, 0.3);
+}
+
+.dot-marker,
+.dot-marker strong {
+  border-width: 1.5px;
+  border-color: #f5f4f1;
+  box-shadow: 0 2px 5px rgba(33, 30, 27, 0.26);
+}
+
+.dot-marker strong {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.cluster-marker,
+.area-marker {
+  border-color: var(--pin-color);
+  background: var(--pin-color);
+  color: #f5f4f1;
+  box-shadow: 0 2px 6px rgba(33, 30, 27, 0.26);
+}
+
+.cluster-marker strong,
+.area-marker strong,
+.cluster-marker span,
+.area-marker span {
+  color: #f5f4f1;
+  font-family: var(--font-mono);
+}
+
+/* ── 지도 툴바 · 상태 ── */
+.map-toolbar {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.data-status {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  box-shadow: none;
+}
+
+.data-status.live {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.data-status.sample {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+
+/* ── 상세: 판정 배너가 판단을 맡는다 ── */
+.verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-sm);
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+
+.verdict-level {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.verdict p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.detail-stat {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.detail-stat span {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.detail-stat strong {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  font-variation-settings: "wdth" 110;
+  letter-spacing: -0.035em;
+}
+
+.detail-stat strong.positive,
+.detail-stat strong.negative {
+  color: var(--ink);
+}
+
+.detail-photos.skeleton {
+  background: var(--surface-2);
+}
+
+.risk-badge {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.doc-row,
+.case-row,
+.deal-row {
+  border-color: var(--line);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.list-panel-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.list-panel-header strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sheet-grip {
+  display: none;
+}
+
+/* ── 사이드바 상단 압축: 목록에 세로를 돌려준다 ──
+   브랜드바 86 → 52, 필터 319 → 약 200. 확보한 150px가 곧 카드 한 장이다. */
+.brandbar {
+  gap: 10px;
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.brandbar h1 {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.brandbar .eyebrow {
+  margin: 0 0 1px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brandbar .icon-button {
+  width: 30px;
+  min-height: 30px;
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.filters {
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.filters label {
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.filters select,
+.search-box {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.filters select {
+  font-size: 12.5px;
+}
+
+.filters input[type="range"] {
+  height: 16px;
+}
+
+.sidebar {
+  gap: 10px;
+  padding: 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   모바일: 세로로 쌓인 문서 → 지도 전체화면 + 3단 바텀시트
+   지도 기반 탐색 도구인데 진입 시 지도가 안 보이던 문제를 여기서 고친다.
+   이 블록은 파일 맨 끝에 둔다 — 위의 1040/720 미디어쿼리를 덮어야 한다.
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 1040px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-shell {
+    position: fixed;
+    inset: 0;
+    display: block;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* 지도가 바닥 레이어로 화면 전체를 덮는다 */
+  .map-area {
+    position: absolute;
+    inset: 0;
+    display: block;
+    min-height: 0;
+  }
+
+  .map-stage {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+  }
+
+  .naver-map,
+  .fallback-map {
+    height: 100%;
+  }
+
+  /* 검색과 데이터 상태는 지도 위에 뜨는 알약 */
+  .map-toolbar {
+    position: absolute;
+    inset: 8px 8px auto 8px;
+    z-index: 12;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .search-box {
+    grid-column: auto;
+    min-height: 40px;
+    border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(33, 30, 27, 0.16);
+  }
+
+  .data-status {
+    min-height: 40px;
+    max-width: 42vw;
+    border-radius: 999px;
+    box-shadow: 0 2px 10px rgba(33, 30, 27, 0.16);
+  }
+
+  /* 목록 시트 */
+  .sidebar {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 20;
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    gap: 0;
+    height: 88dvh;
+    max-height: none;
+    padding: 0;
+    border: 0;
+    border-top: 1px solid var(--line-strong);
+    border-radius: 20px 20px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -8px 30px rgba(33, 30, 27, 0.18);
+    overflow: hidden;
+    transform: translateY(calc(88dvh - 128px));
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  body.sheet-half .sidebar {
+    transform: translateY(44%);
+  }
+
+  body.sheet-full .sidebar {
+    transform: translateY(0);
+  }
+
+  .brandbar {
+    display: none;
+  }
+
+  .sheet-grip {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    padding: 10px 0 6px;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    touch-action: none;
+  }
+
+  .sheet-grip i {
+    display: block;
+    width: 36px;
+    height: 4px;
+    border-radius: 4px;
+    background: var(--line-strong);
+  }
+
+  /* peek 상태에서도 보이는 요약 — 시트를 열기 전에 판단 재료를 준다 */
+  .metric-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0 14px 10px;
+  }
+
+  /* 필터는 시트를 펼쳤을 때만 나온다 */
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0 14px;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.28s ease,
+      padding 0.28s ease,
+      margin 0.28s ease;
+  }
+
+  body.sheet-half .filters,
+  body.sheet-full .filters {
+    max-height: 340px;
+    margin: 0 14px 10px;
+    padding: 12px;
+    border-width: 1px;
+  }
+
+  .property-list {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+    padding: 0 14px 24px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 상세는 시트 위로 덮어 올라오는 전체 화면 */
+  .detail-panel {
+    position: absolute;
+    inset: 6dvh 0 0 0;
+    z-index: 40;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-top: 1px solid var(--line-strong);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -8px 30px rgba(33, 30, 27, 0.2);
+    transform: translateY(100%);
+  }
+
+  .detail-panel.open {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .filters {
+    transition: none;
+  }
+}
+
+/* 임박 마커: 배경만 오렌지로 바꾸고 글자는 먹빛으로 뒤집는다.
+   오렌지 위 흰 글씨는 3.3:1밖에 안 나와서 지도 위에서 특히 안 읽힌다. */
+.auction-marker.is-urgent,
+.fallback-marker.is-urgent,
+.dot-marker.is-urgent,
+.dot-marker.is-urgent strong,
+.cluster-marker.is-urgent {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: #211e1b;
+}
+
+.auction-marker.is-urgent strong,
+.fallback-marker.is-urgent strong,
+.dot-marker.is-urgent strong {
+  color: #211e1b;
+}
+
+.auction-marker.is-urgent small,
+.auction-marker.is-urgent .auction-marker-source,
+.fallback-marker.is-urgent small {
+  color: rgba(33, 30, 27, 0.68);
+}
+
+.auction-marker.is-urgent::after,
+.fallback-marker.is-urgent::after {
+  background: var(--signal);
 }

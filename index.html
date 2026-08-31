@@ -12,7 +12,10 @@
       }
     </script>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-    <link rel="stylesheet" href="./styles.css?v=20260825-slide-1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="./styles.css?v=20260828-gauge-8" />
   </head>
   <body>
     <main class="app-shell">
@@ -106,35 +109,29 @@
     <template id="propertyCardTemplate">
       <article class="property-card">
         <div class="card-main">
-          <div>
-            <p class="case-no"></p>
-            <h2></h2>
-          </div>
+          <p class="case-no"></p>
           <span class="score-pill"></span>
         </div>
-        <p class="address"></p>
-        <div class="price-grid">
-          <div>
-            <span>최저입찰가</span>
-            <strong class="min-bid"></strong>
-          </div>
-          <div>
-            <span>공시기준가</span>
-            <strong class="official-value"></strong>
-          </div>
-          <div>
-            <span>공시기준 대비</span>
-            <strong class="official-discount"></strong>
-          </div>
-          <div>
-            <span>입찰일</span>
-            <strong class="bid-date"></strong>
-          </div>
+        <div class="title-line">
+          <h2></h2>
+          <span class="address"></span>
         </div>
-        <div class="tag-row"></div>
+        <div class="num-row">
+          <strong class="min-bid"></strong>
+          <span class="official-value"></span>
+          <span class="official-discount"></span>
+        </div>
+        <div class="gauge-row">
+          <div class="gauge"><i></i></div>
+          <span class="gauge-label"></span>
+        </div>
+        <div class="meta-row">
+          <div class="fail-row"></div>
+          <div class="tag-row"></div>
+        </div>
       </article>
     </template>
 
-    <script src="./app.js?v=20260825-photo-2" defer></script>
+    <script src="./app.js?v=20260828-gauge-8" defer></script>
   </body>
 </html>

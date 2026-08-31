@@ -102,9 +102,71 @@ init();
 function init() {
   populateFilters();
   bindEvents();
+  setupBottomSheet();
   render();
   reloadNaverMapScript();
   hydrateExternalProperties();
+}
+
+// ── 모바일 바텀 시트 ──
+// 지도가 바닥 레이어로 화면 전체를 덮고, 목록은 손잡이를 끌어 올리는 시트로 올라온다.
+// 3단(peek/half/full)만 둔다. 단계가 더 늘면 어디까지 끌어야 할지 예측이 안 된다.
+function setupBottomSheet() {
+  // init()이 파일 상단에서 즉시 호출되므로 상수를 모듈 스코프에 두면 TDZ에 걸린다.
+  const SHEET_STATES = ["peek", "half", "full"];
+
+  const sidebar = document.querySelector(".sidebar");
+  if (!sidebar || sidebar.querySelector(".sheet-grip")) return;
+
+  const grip = document.createElement("button");
+  grip.type = "button";
+  grip.className = "sheet-grip";
+  grip.innerHTML = `<i aria-hidden="true"></i>`;
+  sidebar.prepend(grip);
+
+  let index = 0;
+  let startY = null;
+  let dragged = false;
+
+  const apply = () => {
+    SHEET_STATES.forEach((name) => {
+      document.body.classList.toggle(`sheet-${name}`, SHEET_STATES[index] === name);
+    });
+    grip.setAttribute("aria-label", index === SHEET_STATES.length - 1 ? "목록 접기" : "목록 펼치기");
+    grip.setAttribute("aria-expanded", String(index > 0));
+  };
+
+  const move = (step) => {
+    index = Math.max(0, Math.min(SHEET_STATES.length - 1, index + step));
+    apply();
+  };
+
+  grip.addEventListener("pointerdown", (event) => {
+    startY = event.clientY;
+    dragged = false;
+    grip.setPointerCapture(event.pointerId);
+  });
+
+  grip.addEventListener("pointerup", (event) => {
+    if (startY === null) return;
+    const delta = startY - event.clientY;
+    startY = null;
+    // 24px 미만은 탭으로 본다. 그 이상이면 끈 방향으로 한 단계.
+    if (Math.abs(delta) < 24) return;
+    dragged = true;
+    move(delta > 0 ? 1 : -1);
+  });
+
+  grip.addEventListener("click", () => {
+    if (dragged) {
+      dragged = false;
+      return;
+    }
+    index = (index + 1) % SHEET_STATES.length;
+    apply();
+  });
+
+  apply();
 }
 
 async function hydrateExternalProperties() {
@@ -1015,10 +1077,11 @@ function renderRecommendationPanel(items) {
     pill.classList.toggle("urgent", dday !== null && dday >= 0 && dday <= 7);
     node.querySelector(".address").textContent = item.address;
     node.querySelector(".min-bid").textContent = formatWon(item.minBid);
-    node.querySelector(".official-value").textContent = formatOfficialValue(item);
+    node.querySelector(".official-value").textContent = `공시 ${formatOfficialValue(item)}`;
     node.querySelector(".official-discount").textContent = formatOfficialDiscount(item);
     node.querySelector(".official-discount").className = `official-discount ${officialDiscountTone(item)}`;
-    node.querySelector(".bid-date").textContent = formatDate(item.bidDate);
+    fillGauge(node, item);
+    fillFailDots(node, item);
     node.querySelector(".tag-row").innerHTML = renderTags(item);
     node.addEventListener("click", () => openPropertyDetail(item.id));
     fragment.append(node);
@@ -1124,18 +1187,14 @@ async function loadPropertyDetail(id) {
 }
 
 function renderTags(item) {
-  // 카드 제목(유형)·리스트 맥락(전부 경매)과 겹치는 태그는 빼고, 판단에 쓰는 3개 이내만 남긴다.
-  const tags = [
-    item.failCount >= 1
-      ? { label: `유찰 ${item.failCount}회`, tone: item.failCount >= 2 ? "hot" : "" }
-      : { label: "신건", tone: "info" },
-    { label: `위험 ${item.risk}`, tone: item.risk === "낮음" ? "good" : item.risk === "높음" ? "hot" : "" }
-  ];
-  if (item.officialComparable) {
-    tags.push({ label: `${item.officialBasisShortLabel} 기준`, tone: "good" });
-  } else {
-    tags.push({ label: "공시가 미확인", tone: "" });
-  }
+  // 유찰 횟수는 도트 행이 이미 말한다. 태그로 또 찍으면 같은 정보가 한 카드에 두 번 나간다.
+  // 여기 남기는 건 도트로 표현되지 않는 두 가지 — 위험 등급과 공시가 기준 출처뿐이다.
+  const tags = [{ label: `위험 ${item.risk}`, tone: item.risk === "높음" ? "hot" : "" }];
+  tags.push(
+    item.officialComparable
+      ? { label: `${item.officialBasisShortLabel} 기준`, tone: "good" }
+      : { label: "공시가 미확인", tone: "" }
+  );
   return tags.map((tag) => `<span class="tag ${tag.tone}">${escapeHtml(tag.label)}</span>`).join("");
 }
 
@@ -1963,7 +2022,7 @@ function markerContent(item, kind, color, mode, active) {
     const representative = item.items?.[0] || item;
     const countLabel = item.count > 1 ? item.count.toLocaleString("ko-KR") : "";
     return `
-      <div class="dot-marker source-${kind} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
+      <div class="dot-marker source-${kind} ${markerUrgentClass(representative)} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
         <span>${escapeHtml(sourceShortLabel(representative))}</span>
         ${countLabel ? `<strong>${countLabel}</strong>` : ""}
       </div>
@@ -1982,7 +2041,7 @@ function markerContent(item, kind, color, mode, active) {
 
   const representative = item.items?.[0] || item;
   return `
-    <div class="auction-marker source-${kind} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
+    <div class="auction-marker source-${kind} ${markerUrgentClass(representative)} ${active ? "active" : ""}" data-property-id="${escapeHtml(representative.id)}" style="--pin-color:${color};">
       ${markerLabelHtml(representative)}
     </div>
   `;
@@ -2005,12 +2064,16 @@ function markerIconSize(item, mode) {
 }
 
 function markerColor(item, kind, isCluster) {
-  if (isCluster && kind === "mixed") return "#64748b";
-  if (kind === "onbid") return "#ff8352";
-  if (kind === "court") return "#55b900";
-  if (item.score < 50) return "#b4463e";
-  if (item.score < 65) return "#9a6b00";
-  return "#11845b";
+  // 점수를 색으로 등급 매기면 목록에서 고친 오독이 지도에서 그대로 되살아난다.
+  // 마커는 먹빛 하나로 통일하고, 오렌지는 입찰이 임박한 물건에만 쓴다.
+  return "#211e1b";
+}
+
+// 임박 여부는 색상값이 아니라 클래스로 넘긴다. 배경만 오렌지로 바꾸고 글자는 먹빛으로
+// 뒤집어야 대비가 나오는데, --pin-color 하나로는 그 둘을 같이 표현할 수 없다.
+function markerUrgentClass(item) {
+  const dday = daysUntil(item && item.bidDate);
+  return dday !== null && dday >= 0 && dday <= 7 ? "is-urgent" : "";
 }
 
 function markerLabelHtml(item) {
@@ -2097,10 +2160,11 @@ function renderPropertyDetail(item) {
       ${item.publicHousingPriceSource ? detailStat(item.publicHousingPriceSource, `${item.publicHousingPriceYear}년${item.publicHousingPriceUnit?.dong ? ` · ${item.publicHousingPriceUnit.dong}동` : ""}${item.publicHousingPriceUnit?.ho ? ` ${item.publicHousingPriceUnit.ho}호` : ""}`) : ""}
       ${item.publicStandardPriceSource ? detailStat(item.publicStandardPriceSource, `${item.publicStandardPriceUnit?.floor ? `${item.publicStandardPriceUnit.floor}층 ` : ""}${item.publicStandardPriceUnit?.ho ? `${item.publicStandardPriceUnit.ho}호` : ""}`.trim() || "확인") : ""}
     </section>
+    ${renderVerdict(item, detail)}
     <section class="detail-section">
       <h3>판단 메모</h3>
       <p class="address">${escapeHtml(item.memo)}</p>
-      <div class="tag-row">${item.checks.map(displayCheckLabel).filter(Boolean).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
+      <div class="tag-row">${mergeChecks(item, detail).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
     </section>
     <section class="detail-section">
       <h3>인근 실거래 참고</h3>
@@ -2170,14 +2234,7 @@ function renderCourtDetailSections(detail, loading) {
       </section>`);
   }
 
-  const flags = (detail.screening && detail.screening.flags) || [];
-  if (flags.length) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>권리 체크</h3>
-        <div class="tag-row">${flags.map((flag) => `<span class="tag hot">${escapeHtml(flag)}</span>`).join("")}</div>
-      </section>`);
-  }
+  // 권리 체크 플래그는 판단 메모의 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
 
   const documents = detail.documents || [];
   if (documents.length) {
@@ -2281,6 +2338,38 @@ function formatDealMeta(deal) {
   return parts.length ? ` · ${parts.join(" · ")}` : "";
 }
 
+// item.checks(정규화 체크)와 screening.flags(법원 원문 플래그)는 실제로 같은 항목이 겹친다.
+// 사용자가 같은 경고를 두 번 읽지 않도록 합집합을 한 번만 만든다.
+function mergeChecks(item, detail) {
+  const flags = (detail && detail.screening && detail.screening.flags) || [];
+  const seen = new Set();
+  const merged = [];
+  [...(item.checks || []).map(displayCheckLabel), ...flags].forEach((raw) => {
+    const label = String(raw || "").trim();
+    if (!label || seen.has(label)) return;
+    seen.add(label);
+    merged.push(label);
+  });
+  return merged;
+}
+
+// 상세 최상단 판정 — 할인율이 커 보이는 진짜 이유를 먼저 말한다.
+function renderVerdict(item, detail) {
+  const reasons = [];
+  const fails = Number(item.failCount) || 0;
+  const ratio = residualRatio(item);
+  if (fails >= 5) reasons.push(`${fails}회 유찰`);
+  if (ratio !== null && ratio <= 0.1) reasons.push(`공시기준가의 ${Math.max(1, Math.round(ratio * 100))}%까지 하락`);
+  if (detail && detail.share && detail.share.isShareSale) reasons.push("지분 매각");
+  if (item.risk === "높음") reasons.push("위험 높음");
+  if (!reasons.length) return "";
+  return `
+    <div class="verdict">
+      <span class="verdict-level">확인</span>
+      <p>${escapeHtml(reasons.join(" · "))}. 할인율이 아니라 유찰 사유부터 확인하세요.</p>
+    </div>`;
+}
+
 function detailStat(label, value, tone = "") {
   return `
     <div class="detail-stat">
@@ -2353,8 +2442,56 @@ function formatOfficialDiscount(item) {
 }
 
 function officialDiscountTone(item) {
-  if (!item.officialComparable) return "neutral";
-  return item.officialDiscount >= 0 ? "positive" : "negative";
+  // 할인율에는 색을 쓰지 않는다. 크게 깎인 물건일수록 유찰 사유가 있는 경우가 많아
+  // 초록으로 칠하면 호재로, 빨강으로 칠하면 불량으로 읽힌다. 둘 다 사실이 아니다.
+  // 판단 근거는 게이지 길이와 유찰 도트, 그리고 상세의 판정 배너가 낸다.
+  return item.officialComparable ? "" : "neutral";
+}
+
+const MAX_FAIL_DOTS = 12;
+
+// 공시기준가 대비 남은 값의 비율. 게이지 막대 길이가 곧 이 값이다.
+function residualRatio(item) {
+  if (!item.officialComparable) return null;
+  const base = Number(item.officialValue) || 0;
+  const bid = Number(item.minBid) || 0;
+  if (base <= 0 || bid <= 0) return null;
+  return Math.min(1, bid / base);
+}
+
+function fillGauge(node, item) {
+  const row = node.querySelector(".gauge-row");
+  if (!row) return;
+  const ratio = residualRatio(item);
+  if (ratio === null) {
+    row.hidden = true;
+    return;
+  }
+  const percent = Math.max(1, Math.round(ratio * 100));
+  row.hidden = false;
+  const bar = row.querySelector(".gauge");
+  bar.querySelector("i").style.width = `${Math.min(100, percent)}%`;
+  bar.setAttribute("role", "img");
+  bar.setAttribute("aria-label", `공시기준가 대비 잔존 ${percent}퍼센트`);
+  row.querySelector(".gauge-label").textContent = `잔존 ${percent}%`;
+}
+
+// 유찰 도트 — 개수 자체가 신호다. 색 없이도 "17번 아무도 안 받았다"가 먼저 읽힌다.
+function fillFailDots(node, item) {
+  const row = node.querySelector(".fail-row");
+  if (!row) return;
+  const count = Number(item.failCount) || 0;
+  if (count < 1) {
+    row.classList.remove("heavy");
+    row.innerHTML = `<span class="fail-label">신건</span>`;
+    return;
+  }
+  const shown = Math.min(count, MAX_FAIL_DOTS);
+  const overflow = count > shown ? `<em>+${count - shown}</em>` : "";
+  row.classList.toggle("heavy", count >= 5);
+  row.innerHTML =
+    `<span class="dots" role="img" aria-label="유찰 ${count}회">${"<i></i>".repeat(shown)}${overflow}</span>` +
+    `<span class="fail-label">유찰 ${count}회</span>`;
 }
 
 function formatDate(value) {
