@@ -120,8 +120,8 @@ async function handleApi(url, response) {
     }
 
     if (url.pathname === "/api/land-price") {
-      const payload = await fetchLandPrice(url.searchParams);
-      sendJson(response, payload.ok ? 200 : 400, payload);
+      const payload = await withUpstreamFallback("공시지가", () => fetchLandPrice(url.searchParams));
+      sendJson(response, payload.ok ? 200 : payload.status || 400, payload);
       return;
     }
 
@@ -138,8 +138,8 @@ async function handleApi(url, response) {
     }
 
     if (url.pathname === "/api/housing-price") {
-      const payload = await fetchHousingPrice(url.searchParams);
-      sendJson(response, payload.ok ? 200 : 400, payload);
+      const payload = await withUpstreamFallback("공시가격", () => fetchHousingPrice(url.searchParams));
+      sendJson(response, payload.ok ? 200 : payload.status || 400, payload);
       return;
     }
 
@@ -201,6 +201,22 @@ async function handleApi(url, response) {
     // 상세 오류는 서버 로그로만 남기고 클라이언트에는 일반화한 메시지를 준다.
     console.error("API error", url.pathname, error);
     sendJson(response, 500, { ok: false, error: "server_error" });
+  }
+}
+
+// VWorld 호출이 배포 환경에서 간헐적으로 끊긴다. 재시도로도 안 되면 502를 던지는 대신
+// 화면이 그 항목만 비우고 계속 돌아가도록 실패를 값으로 돌려준다.
+async function withUpstreamFallback(label, run) {
+  try {
+    return await run();
+  } catch (error) {
+    console.error(`upstream failed: ${label}`, error?.name || "", String(error?.message || "").slice(0, 120));
+    return {
+      ok: false,
+      error: "upstream_unavailable",
+      status: 503,
+      message: `${label} 서버가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.`
+    };
   }
 }
 
