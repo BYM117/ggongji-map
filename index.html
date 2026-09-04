@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
-    <link rel="stylesheet" href="./styles.css?v=20260828-gauge-8" />
+    <link rel="stylesheet" href="./styles.css?v=20260903-category-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -50,11 +50,16 @@
             <span>지역</span>
             <select id="regionFilter"></select>
           </label>
-          <label>
-            <span>물건 유형</span>
-            <select id="typeFilter"></select>
-          </label>
-          <label>
+          <div class="category-filter">
+            <span class="filter-label">물건 종별</span>
+            <div class="chip-row" id="categoryGroups" role="group" aria-label="물건 대분류"></div>
+            <div class="chip-row sub" id="categorySubs" role="group" aria-label="물건 세분류"></div>
+          </div>
+          <div class="category-filter">
+            <span class="filter-label">매각 형태</span>
+            <div class="chip-row" id="saleForms" role="group" aria-label="매각 형태"></div>
+          </div>
+          <label class="wide">
             <span>최소 공시기준 할인율</span>
             <output id="discountValue">전체</output>
             <input id="discountFilter" type="range" min="-100" max="70" step="5" value="-100" />
@@ -68,7 +73,7 @@
               <option value="높음">높음 이하</option>
             </select>
           </label>
-          <label>
+          <label class="wide">
             <span>정렬</span>
             <select id="sortBy">
               <option value="score">추천 점수순</option>
@@ -132,6 +137,10 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260828-gauge-8" defer></script>
+    <script type="module">
+      import * as categories from "./categories.js?v=20260903-category-1";
+      window.GGONGJI_CATEGORIES = categories;
+    </script>
+    <script src="./app.js?v=20260903-category-1" defer></script>
   </body>
 </html>

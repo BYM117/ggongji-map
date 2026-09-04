@@ -326,9 +326,91 @@ select:focus-visible {
   font-weight: 720;
 }
 
-.filters label:nth-child(3),
-.filters label:nth-child(5) {
+.filters label.wide,
+.filters .category-filter {
   grid-column: 1 / -1;
+}
+
+/* ── 종별 칩 ──
+   드롭다운을 버리고 칩으로 바꾼 이유는 두 가지다.
+   1) 예전 <select>는 화면에 로드된 물건에서 옵션을 만들어서, 지도를 옮기면 항목이 바뀌었다.
+      칩은 목록과 순서가 고정이라 손이 위치를 기억한다.
+   2) 각 칩에 건수가 붙어 있어 비어 있는 칸을 눌러보는 헛수고가 없다.
+   색은 쓰지 않는다. 선택은 먹빛 반전, 나머지는 선으로만 말한다. */
+.category-filter {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chip-row.sub {
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.chip-row.sub[hidden] {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip i {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--soft);
+  letter-spacing: -0.02em;
+}
+
+.chip.active {
+  border-color: var(--frame);
+  background: var(--frame);
+  color: var(--frame-ink);
+}
+
+.chip.active i {
+  color: rgba(245, 244, 241, 0.65);
+}
+
+/* 건수가 0인 칩은 지우지 않는다. 사라지면 목록이 다시 움직이기 때문이다. */
+.chip.empty {
+  border-color: var(--line);
+  color: var(--soft);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
 }
 
 .filters select,
@@ -623,6 +705,21 @@ select:focus-visible {
 .tag.good {
   background: var(--green-soft);
   color: #0f8f68;
+}
+
+/* 종별 태그: 확정은 먹빛 테두리, 추정은 흐리게 — 같은 얼굴로 보이면 안 된다. */
+.tag.kind {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.tag.soft {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--soft);
+  box-shadow: none;
 }
 
 .tag.info {
@@ -2175,6 +2272,21 @@ select:focus-visible {
 }
 
 .tag.good,
+/* 종별 태그: 확정은 먹빛 테두리, 추정은 흐리게 — 같은 얼굴로 보이면 안 된다. */
+.tag.kind {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.tag.soft {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--soft);
+  box-shadow: none;
+}
+
 .tag.info {
   border-color: var(--line);
   background: rgba(33, 30, 27, 0.05);
@@ -2469,6 +2581,12 @@ select:focus-visible {
   height: 16px;
 }
 
+.chip {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}
+
 .sidebar {
   gap: 10px;
   padding: 14px;
@@ -2617,12 +2735,16 @@ select:focus-visible {
       margin 0.28s ease;
   }
 
+  /* 종별 칩이 들어오면서 필터 높이가 340px을 넘겼다. 고정 상한으로 두면 세분류 행이 잘려
+     "칩이 안 보이는" 상태가 되므로, 펼침 애니메이션용 상한만 넉넉히 두고 내부를 스크롤시킨다. */
   body.sheet-half .filters,
   body.sheet-full .filters {
-    max-height: 340px;
+    max-height: min(640px, 42dvh);
     margin: 0 14px 10px;
     padding: 12px;
     border-width: 1px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .property-list {

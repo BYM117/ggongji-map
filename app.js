@@ -34,7 +34,11 @@ const state = {
   selectedId: null,
   filters: {
     region: "all",
-    type: "all",
+    // 물건 종별은 두 단계다. group을 고르면 그 그룹의 세분류 칩이 열리고,
+    // subs가 비어 있으면 "그룹 전체"를 뜻한다.
+    categoryGroup: "all",
+    categorySubs: new Set(),
+    saleForm: "all",
     risk: "all",
     discount: DEFAULT_DISCOUNT_FILTER,
     sortBy: "score",
@@ -81,7 +85,9 @@ const dom = {
   detail: document.querySelector("#detailPanel"),
   cardTemplate: document.querySelector("#propertyCardTemplate"),
   regionFilter: document.querySelector("#regionFilter"),
-  typeFilter: document.querySelector("#typeFilter"),
+  categoryGroups: document.querySelector("#categoryGroups"),
+  categorySubs: document.querySelector("#categorySubs"),
+  saleForms: document.querySelector("#saleForms"),
   riskFilter: document.querySelector("#riskFilter"),
   discountFilter: document.querySelector("#discountFilter"),
   discountValue: document.querySelector("#discountValue"),
@@ -559,6 +565,7 @@ function officialPriceRequest(item) {
         if (!payload.ok || !(payload.price > 0)) return null;
         return {
           ...target,
+          ...refinedCategory(target, payload.source),
           publicStandardPrice: payload.price,
           publicStandardPriceSource: payload.source,
           publicStandardPriceUnit: payload.matched || null,
@@ -569,6 +576,16 @@ function officialPriceRequest(item) {
   }
 
   return null;
+}
+
+// 법원이 상가·오피스텔·근린시설을 한 묶음으로만 공개해서 미확정으로 둔 물건은,
+// 국세청 기준시가가 호실 단위로 용도를 들고 있어서 조회가 성공하면 그 자리에서 갈린다.
+function refinedCategory(item, source) {
+  const taxonomy = window.GGONGJI_CATEGORIES;
+  if (!taxonomy) return {};
+  const sub = taxonomy.refineSubWithStandardPrice(item.categorySub, source);
+  if (sub === item.categorySub) return {};
+  return { categorySub: sub, categoryGroup: taxonomy.groupIdOf(sub), categoryConfident: true };
 }
 
 async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
@@ -662,9 +679,70 @@ function setDataStatus(text, tone) {
 
 function populateFilters() {
   const regions = ["all", ...new Set(properties.map((item) => item.region))];
-  const types = ["all", ...new Set(properties.map((item) => item.type))];
   dom.regionFilter.innerHTML = regions.map((region) => option(region, region === "all" ? "전체" : region)).join("");
-  dom.typeFilter.innerHTML = types.map((type) => option(type, type === "all" ? "전체" : type)).join("");
+}
+
+// 종별 칩은 화면에 뭐가 떠 있든 목록과 순서가 고정이다.
+// 예전처럼 로드된 물건에서 옵션을 만들면 지도를 옮길 때마다 항목이 바뀌어서 고를 수가 없다.
+// 대신 각 칩에 현재 조건에서의 건수를 붙여, 비어 있는 칸을 눌러보는 헛수고를 없앤다.
+function renderCategoryFilters(scopeItems) {
+  const taxonomy = window.GGONGJI_CATEGORIES;
+  if (!taxonomy || !dom.categoryGroups) return;
+
+  const subCounts = new Map();
+  const formCounts = new Map();
+  scopeItems.forEach((item) => {
+    const sub = item.categorySub || "unknown";
+    subCounts.set(sub, (subCounts.get(sub) || 0) + 1);
+    const form = item.saleForm || "other";
+    formCounts.set(form, (formCounts.get(form) || 0) + 1);
+  });
+
+  const groupCount = (group) => group.subs.reduce((sum, sub) => sum + (subCounts.get(sub.id) || 0), 0);
+  const activeGroup = state.filters.categoryGroup;
+
+  dom.categoryGroups.innerHTML = [
+    chipHtml({ value: "all", label: "전체", count: scopeItems.length, active: activeGroup === "all" }),
+    ...taxonomy.CATEGORY_GROUPS.map((group) =>
+      chipHtml({ value: group.id, label: group.label, count: groupCount(group), active: activeGroup === group.id })
+    )
+  ].join("");
+
+  const group = taxonomy.CATEGORY_GROUPS.find((entry) => entry.id === activeGroup);
+  dom.categorySubs.hidden = !group;
+  dom.categorySubs.innerHTML = group
+    ? group.subs
+        .map((sub) =>
+          chipHtml({
+            value: sub.id,
+            label: sub.label,
+            count: subCounts.get(sub.id) || 0,
+            active: state.filters.categorySubs.has(sub.id),
+            title: sub.hint || ""
+          })
+        )
+        .join("")
+    : "";
+
+  dom.saleForms.innerHTML = [
+    chipHtml({ value: "all", label: "전체", count: scopeItems.length, active: state.filters.saleForm === "all" }),
+    ...taxonomy.SALE_FORMS.map((form) =>
+      chipHtml({
+        value: form.id,
+        label: form.label,
+        count: formCounts.get(form.id) || 0,
+        active: state.filters.saleForm === form.id,
+        title: form.hint || ""
+      })
+    )
+  ].join("");
+}
+
+function chipHtml({ value, label, count, active, title = "" }) {
+  const empty = count === 0 && value !== "all";
+  return `<button type="button" class="chip${active ? " active" : ""}${empty ? " empty" : ""}" data-value="${escapeHtml(value)}"${
+    title ? ` title="${escapeHtml(title)}"` : ""
+  } aria-pressed="${active ? "true" : "false"}">${escapeHtml(label)}<i>${count.toLocaleString("ko-KR")}</i></button>`;
 }
 
 function option(value, label) {
@@ -673,7 +751,9 @@ function option(value, label) {
 
 function bindEvents() {
   dom.regionFilter.addEventListener("change", (event) => updateFilter("region", event.target.value));
-  dom.typeFilter.addEventListener("change", (event) => updateFilter("type", event.target.value));
+  dom.categoryGroups.addEventListener("click", (event) => handleGroupChip(event));
+  dom.categorySubs.addEventListener("click", (event) => handleSubChip(event));
+  dom.saleForms.addEventListener("click", (event) => handleSaleFormChip(event));
   dom.riskFilter.addEventListener("change", (event) => updateFilter("risk", event.target.value));
   dom.sortBy.addEventListener("change", (event) => updateFilter("sortBy", event.target.value));
   dom.discountFilter.addEventListener("input", (event) => {
@@ -688,6 +768,33 @@ function bindEvents() {
     event.stopPropagation();
     openPropertyDetail(marker.dataset.propertyId);
   });
+}
+
+function chipValue(event) {
+  const chip = event.target.closest(".chip");
+  return chip ? chip.dataset.value : "";
+}
+
+function handleGroupChip(event) {
+  const value = chipValue(event);
+  if (!value) return;
+  // 대분류를 바꾸면 이전 그룹의 세분류 선택은 의미가 없어지므로 함께 비운다.
+  state.filters.categorySubs = new Set();
+  updateFilter("categoryGroup", state.filters.categoryGroup === value && value !== "all" ? "all" : value);
+}
+
+function handleSubChip(event) {
+  const value = chipValue(event);
+  if (!value) return;
+  const subs = state.filters.categorySubs;
+  subs.has(value) ? subs.delete(value) : subs.add(value);
+  updateFilter("categorySubs", subs);
+}
+
+function handleSaleFormChip(event) {
+  const value = chipValue(event);
+  if (!value) return;
+  updateFilter("saleForm", state.filters.saleForm === value ? "all" : value);
 }
 
 function handleKeywordSearchInput(event) {
@@ -753,7 +860,9 @@ function updateFilter(key, value) {
 function resetFilters() {
   state.filters = {
     region: "all",
-    type: "all",
+    categoryGroup: "all",
+    categorySubs: new Set(),
+    saleForm: "all",
     risk: "all",
     discount: DEFAULT_DISCOUNT_FILTER,
     sortBy: "score",
@@ -766,7 +875,6 @@ function resetFilters() {
   state.globalSearchIds.clear();
   state.listLimit = LIST_RENDER_LIMIT;
   dom.regionFilter.value = "all";
-  dom.typeFilter.value = "all";
   dom.riskFilter.value = "all";
   dom.discountFilter.value = String(DEFAULT_DISCOUNT_FILTER);
   dom.discountValue.textContent = formatDiscountFilter(DEFAULT_DISCOUNT_FILTER);
@@ -798,17 +906,24 @@ function getVisibleProperties(items) {
   const globalSearchItems = state.filters.keyword && state.globalSearchIds.size
     ? filtered.filter((item) => state.globalSearchIds.has(item.id))
     : [];
-  if (globalSearchItems.length) return sortProperties(globalSearchItems);
 
-  // 경계값은 한 번만 구해서 물건마다 숫자 비교만 한다. (물건당 SDK 호출 금지)
-  const bounds = state.mapBoundsOnly && state.naverLoaded && state.map ? currentMapBounds() : null;
-  const viewportItems = bounds
-    ? filtered.filter(
-        (item) =>
-          item.lat >= bounds.swLat && item.lat <= bounds.neLat && item.lng >= bounds.swLng && item.lng <= bounds.neLng
-      )
-    : filtered;
-  return sortProperties(viewportItems);
+  let scope;
+  if (globalSearchItems.length) {
+    scope = globalSearchItems;
+  } else {
+    // 경계값은 한 번만 구해서 물건마다 숫자 비교만 한다. (물건당 SDK 호출 금지)
+    const bounds = state.mapBoundsOnly && state.naverLoaded && state.map ? currentMapBounds() : null;
+    scope = bounds
+      ? filtered.filter(
+          (item) =>
+            item.lat >= bounds.swLat && item.lat <= bounds.neLat && item.lng >= bounds.swLng && item.lng <= bounds.neLng
+        )
+      : filtered;
+  }
+
+  // 칩 건수는 종별을 제외한 나머지 조건 + 현재 화면 기준으로 센다.
+  renderCategoryFilters(scope);
+  return sortProperties(scope.filter(matchesCategory));
 }
 
 // 물건 객체가 교체되지 않는 한 점수 계산을 반복하지 않는다.
@@ -917,7 +1032,7 @@ function resolveOfficialBasis(item) {
   }
 
   if (propertyKind === "officetel") {
-    return officialMissingBasis("오피스텔 기준시가 필요", "기준시가 필요", landReferenceValue);
+    return officialMissingBasis("상업용건물·오피스텔 기준시가 필요", "기준시가 필요", landReferenceValue);
   }
 
   if (propertyKind === "detachedHousing") {
@@ -946,17 +1061,29 @@ function landOfficialValue(item) {
   return pricePerSqm > 0 && area > 0 ? pricePerSqm * area : 0;
 }
 
-function officialPropertyKind(item) {
-  const text = `${item.type || ""} ${item.title || ""} ${item.category || ""} ${item.zoning || ""} ${item.address || ""}`;
+// 어떤 공시가격을 조회할지 정한다. 예전에는 주소·제목을 한 덩어리로 만들어 정규식으로 훑었는데,
+// 그러면 카테고리 라벨 "상가,오피스텔,근린시설"이 오피스텔로 잡히는 식으로 조회 대상이 어긋난다.
+// 이제는 서버가 확정한 세분류 하나만 본다.
+const OFFICIAL_KIND_BY_SUB = {
+  apartment: "commonHousing",
+  villa: "commonHousing",
+  house: "detachedHousing",
+  // 국세청 상업용건물·오피스텔 기준시가가 함께 담당하는 범위다.
+  officetel: "officetel",
+  retail: "officetel",
+  office: "officetel",
+  retailOrOfficetel: "officetel",
+  siteLand: "land",
+  farmland: "land",
+  forest: "land",
+  industrialLand: "land",
+  miscLand: "land",
+  roadRiver: "land",
+  etcLand: "land"
+};
 
-  if (/(아파트|다세대|연립|공동주택|빌라)/.test(text)) return "commonHousing";
-  if (/오피스텔/.test(text)) return "officetel";
-  if (/(단독|다가구|주택)/.test(text)) return "detachedHousing";
-  if (item.type === "토지" || /(임야|전|답|대지|잡종지|과수원|목장용지|공장용지|도로|하천|구거|체육용지)/.test(text)) {
-    if (!/(건물|아파트|다세대|연립|빌라|주택|오피스텔|상가|공장|창고|근린)/.test(text)) return "land";
-    if (item.type === "토지") return "land";
-  }
-  return "mixed";
+function officialPropertyKind(item) {
+  return OFFICIAL_KIND_BY_SUB[item.categorySub] || "mixed";
 }
 
 function numberFromValue(value) {
@@ -965,9 +1092,8 @@ function numberFromValue(value) {
 }
 
 function comparableArea(item) {
-  if (item.type === "토지") return item.landArea;
-  if (item.type === "빌라") return 59;
-  if (item.type === "오피스텔") return 28;
+  if (item.categorySub === "villa") return 59;
+  if (item.categorySub === "officetel") return 28;
   return item.landArea;
 }
 
@@ -999,11 +1125,21 @@ function matchesFilters(item) {
 
   return (
     (state.filters.region === "all" || item.region === state.filters.region) &&
-    (state.filters.type === "all" || item.type === state.filters.type) &&
     riskOrder[item.risk] <= riskLimit &&
     matchesDiscount &&
     matchesKeyword
   );
+}
+
+// 종별 판정은 따로 둔다. 칩에 붙는 건수는 "종별을 뺀 나머지 조건"을 만족하는 물건으로 세야
+// 대분류를 하나 고른 순간 다른 칩이 전부 0으로 보이는 일이 없다.
+function matchesCategory(item) {
+  const { categoryGroup, categorySubs, saleForm } = state.filters;
+  if (saleForm !== "all" && (item.saleForm || "other") !== saleForm) return false;
+  if (categoryGroup === "all") return true;
+  if ((item.categoryGroup || "etc") !== categoryGroup) return false;
+  if (!categorySubs.size) return true;
+  return categorySubs.has(item.categorySub || "unknown");
 }
 
 function compactSearchText(value) {
@@ -1201,7 +1337,12 @@ async function loadPropertyDetail(id) {
 function renderTags(item) {
   // 유찰 횟수는 도트 행이 이미 말한다. 태그로 또 찍으면 같은 정보가 한 카드에 두 번 나간다.
   // 여기 남기는 건 도트로 표현되지 않는 두 가지 — 위험 등급과 공시가 기준 출처뿐이다.
-  const tags = [{ label: `위험 ${item.risk}`, tone: item.risk === "높음" ? "hot" : "" }];
+  const tags = [];
+  // 종별은 카드 제목이 이미 말한다. 여기서는 제목만 봐서는 알 수 없는 두 가지만 덧붙인다.
+  // 확정이 아닌 분류라는 사실과, 토지 없이 건물만 파는 물건이라는 사실.
+  if (item.categoryConfident === false) tags.push({ label: "추정 분류", tone: "soft" });
+  if (item.saleForm === "buildingOnly") tags.push({ label: "건물만", tone: "hot" });
+  tags.push({ label: `위험 ${item.risk}`, tone: item.risk === "높음" ? "hot" : "" });
   tags.push(
     item.officialComparable
       ? { label: `${item.officialBasisShortLabel} 기준`, tone: "good" }
