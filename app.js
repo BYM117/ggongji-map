@@ -580,34 +580,46 @@ async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
 
   setDataStatus(`${baseLabel} · 실거래가 조회 중`, tone);
 
-  const results = await mapWithConcurrency(candidates, 4, async ({ item, addressParts }) => {
+  // 요청에 담기는 건 "구·동·물건종류" 세 개뿐이라, 같은 단지 물건 여러 개가 완전히
+  // 똑같은 질문을 만든다. 물건마다 부르면 화면 하나에 수십 번이 중복으로 나갔다.
+  // (실측: 물건 124개 → 요청 124번, 그중 진짜 다른 질문은 62개)
+  // 조합별로 한 번만 부르고, 받아온 결과를 그 조합의 물건들에 나눠 붙인다.
+  const groups = new Map();
+  for (const { item, addressParts } of candidates) {
+    const key = `${addressParts.district}|${addressParts.dong}|${item.type}`;
+    const group = groups.get(key) || { addressParts, type: item.type, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+
+  const results = await mapWithConcurrency([...groups.values()], 6, async (group) => {
       try {
         const params = new URLSearchParams({
-          district: addressParts.district,
-          dong: addressParts.dong,
-          type: item.type,
+          district: group.addressParts.district,
+          dong: group.addressParts.dong,
+          type: group.type,
           limit: "3"
         });
         const response = await fetch(`/api/seoul-deals?${params.toString()}`, { cache: "no-store" });
-        if (!response.ok) return null;
+        if (!response.ok) return [];
 
         const payload = await response.json();
-        if (!payload.ok || !payload.deals?.length) return null;
+        if (!payload.ok || !payload.deals?.length) return [];
 
-        return {
+        return group.items.map((item) => ({
           ...item,
           nearbyDeals: payload.deals,
           marketDealSource: payload.source,
           marketDealScope: payload.scope,
           checks: uniqueValues([...(item.checks || []), "서울 실거래가"])
-        };
+        }));
       } catch (error) {
-        console.warn("Failed to load Seoul deals", item.address, error);
-        return null;
+        console.warn("Failed to load Seoul deals", group.addressParts, error);
+        return [];
       }
     });
 
-  const updates = new Map(results.filter(Boolean).map((item) => [item.id, item]));
+  const updates = new Map(results.flat().map((item) => [item.id, item]));
   if (!updates.size) return 0;
 
   updates.forEach((item) => rememberHydration(item));
