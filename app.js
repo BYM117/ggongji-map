@@ -1839,8 +1839,9 @@ function makeAdminClusters(items, level) {
       lng,
       title: `${label} ${bucket.length}개 물건`,
       groupLabel: shortAdminLabel(label),
-      displayMode: "area",
-      adminLabel: shortAdminLabel(label)
+      // 1건짜리까지 지역 알약을 주면 폭 78px 텍스트 덩어리가 화면을 덮는다. 점으로 찍는다.
+      displayMode: bucket.length > 1 ? "area" : "dot",
+      adminLabel: markerAdminLabel(shortAdminLabel(label))
     };
   });
 
@@ -1956,6 +1957,15 @@ function normalizeProvinceName(value) {
 
 function provinceCenter(label) {
   return PROVINCE_CENTERS[label] || null;
+}
+
+// 마커에는 가장 구체적인 한 토막만 찍는다.
+// "인천 미추홀구 주안동"을 폭 118px에 밀어넣으면 정작 구분되는 동 이름이 잘려서
+// 미추홀구 안의 동 열 곳이 전부 "인천 미추홀구 ..."로 똑같이 보였다.
+// 시/도와 구는 지도 바탕이 이미 보여주므로 라벨에서 뺀다. 전체 이름은 title에 남는다.
+function markerAdminLabel(label) {
+  const parts = String(label || "").trim().split(/\s+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "지역";
 }
 
 function shortAdminLabel(label) {
@@ -2202,7 +2212,9 @@ function markerContent(item, kind, color, mode, active) {
 
 function markerIconSize(item, mode) {
   if (mode === "area") {
-    const width = Math.min(118, Math.max(78, 42 + String(item.adminLabel || item.groupLabel || "").length * 12));
+    const label = String(item.adminLabel || item.groupLabel || "");
+    const countLength = String(item.count || 0).length;
+    const width = Math.max(58, 22 + label.length * 12 + countLength * 8);
     return { width, height: 54, anchorX: width / 2, anchorY: 62 };
   }
   if (mode === "dot") {

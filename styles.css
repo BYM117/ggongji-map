@@ -2811,3 +2811,62 @@ select:focus-visible {
 .fallback-marker.is-urgent::after {
   background: var(--signal);
 }
+
+/* ── 요약 지표: 4자리 숫자에서 "1,2..."로 잘리던 문제 ──
+   한 줄에 숫자와 라벨을 나란히 놓으니 사이드바 1/3 폭(약 106px)을 넘겼다.
+   숫자를 위, 라벨을 아래로 내려 폭을 각자 다 쓰게 한다. 높이는 그대로. */
+.metric-strip div,
+.metric-strip div:nth-child(1),
+.metric-strip div:nth-child(2),
+.metric-strip div:nth-child(3) {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  padding: 8px 10px;
+}
+
+.metric-strip span {
+  font-size: 17px;
+  line-height: 1.05;
+}
+
+.metric-strip small {
+  overflow: hidden;
+  font-size: 9.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 지역 마커: 라벨이 동 이름 하나로 짧아졌으니 알약도 같이 줄인다 ──
+   min-width 78px가 남아 있으면 "주안동" 한 단어에도 넓은 덩어리가 그려진다. */
+.area-marker {
+  min-width: 0;
+  min-height: 0;
+  padding: 5px 9px 6px;
+  border-radius: 9px;
+  gap: 1px;
+}
+
+.area-marker strong {
+  max-width: none;
+  overflow: visible;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.area-marker span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: rgba(245, 244, 241, 0.72);
+}
+
+.area-marker::after {
+  width: 7px;
+  height: 7px;
+  border-width: 1px;
+}
