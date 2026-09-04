@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "node dev-server.mjs",
     "serve": "node dev-server.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "새작업": "./scripts/새작업.sh",
+    "작업끝": "./scripts/작업끝.sh",
+    "작업목록": "./scripts/작업목록.sh"
   }
 }
