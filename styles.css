@@ -2271,7 +2271,6 @@ select:focus-visible {
   font-weight: 600;
 }
 
-.tag.good,
 /* 종별 태그: 확정은 먹빛 테두리, 추정은 흐리게 — 같은 얼굴로 보이면 안 된다. */
 .tag.kind {
   border-color: var(--line-strong);
@@ -2287,6 +2286,9 @@ select:focus-visible {
   box-shadow: none;
 }
 
+/* .tag.good 과 .tag.info 는 한 쌍이다. 사이에 새 규칙을 끼워 넣으면 짝이 갈라져
+   .tag.good 이 엉뚱한 스타일을 물려받는다. 규칙은 이 묶음 앞이나 뒤에 붙인다. */
+.tag.good,
 .tag.info {
   border-color: var(--line);
   background: rgba(33, 30, 27, 0.05);
