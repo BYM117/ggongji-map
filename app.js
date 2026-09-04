@@ -2389,6 +2389,12 @@ function renderCourtDetailSections(detail, loading) {
 
   // 권리 체크 플래그는 판단 메모의 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
 
+  // 국토부 실거래가는 크롤러가 물건별로 미리 채워 상세 payload에 실어 보낸다.
+  // 위쪽 "인근 실거래 참고"(서울시 API)와 달리 전국이 대상이고 전월세·단지명·층까지 있다.
+  // 그동안 payload로 받아만 놓고 화면에서 버리고 있었다.
+  const marketHtml = renderMolitTransactions(detail.transactions);
+  if (marketHtml) sections.push(marketHtml);
+
   const documents = detail.documents || [];
   if (documents.length) {
     sections.push(`
@@ -2438,6 +2444,68 @@ function renderCourtDetailSections(detail, loading) {
 
 // 사건 테이블은 14개까지 오는데 대부분 빈 행이라, 값이 있는 핵심 항목만 고른다.
 const CASE_ROW_KEYS = ["사건번호", "사건명", "접수일자", "개시결정일자", "청구금액", "담당계", "종국결과", "배당요구종기"];
+
+// 국토부 실거래가(RTMS). 금액 단위가 만원이라 원으로 바꿔 기존 포맷터를 그대로 쓴다.
+function renderMolitTransactions(transactions) {
+  if (!transactions) return "";
+
+  // matched가 false면 같은 단지·평형을 못 찾아 그 법정동 전체 거래를 보여주는 것이다.
+  // 그때는 최저~최고·평균이 동네 전체 값이라 이 물건 시세로 오해하기 쉽다. 요약치는 빼고
+  // 실제 거래 목록만 남긴다. 목록은 인근 시세 감을 잡는 데 그대로 쓸모가 있다.
+  const matched = Boolean(transactions.sales?.matched || transactions.rent?.matched);
+
+  const blocks = [
+    renderMolitBlock("매매", transactions.sales, matched),
+    renderMolitBlock("전월세", transactions.rent, matched)
+  ].filter(Boolean);
+  if (!blocks.length) return "";
+
+  const scope = matched
+    ? `${transactions.building || "같은 단지"} 기준`
+    : "같은 법정동 전체 기준 · 단지 매칭 실패";
+
+  return `
+      <section class="detail-section">
+        <h3>국토부 실거래가</h3>
+        <p class="address">${escapeHtml(scope)}</p>
+        ${blocks.join("")}
+      </section>`;
+}
+
+function renderMolitBlock(label, summary, matched) {
+  const recent = Array.isArray(summary?.recent) ? summary.recent.slice(0, 5) : [];
+  if (!Number(summary?.count) || !recent.length) return "";
+
+  const won = (manwon) => formatWon((Number(manwon) || 0) * 10000);
+
+  return `
+        <div class="case-row">
+          <span>${escapeHtml(label)} ${Number(summary.count).toLocaleString("ko-KR")}건</span>
+          <strong>${matched ? `${won(summary.min)} ~ ${won(summary.max)} · 평균 ${won(summary.avg)}` : "최근 거래"}</strong>
+        </div>
+        <div class="deal-list">
+          ${recent
+            .map(
+              (deal) => `
+            <div class="deal-row">
+              <div>
+                <strong>${escapeHtml(deal.name || label)}</strong><br />
+                <span class="case-no">${escapeHtml(deal.date || "")}${molitDealMeta(deal)}</span>
+              </div>
+              <strong>${won(deal.amount)}${Number(deal.monthly) > 0 ? ` / 월 ${won(deal.monthly)}` : ""}</strong>
+            </div>`
+            )
+            .join("")}
+        </div>`;
+}
+
+function molitDealMeta(deal) {
+  const parts = [];
+  if (Number(deal.area) > 0) parts.push(`${stripZero(Number(deal.area))}㎡`);
+  if (deal.floor) parts.push(`${escapeHtml(String(deal.floor))}층`);
+  if (deal.build_year) parts.push(`${escapeHtml(String(deal.build_year))}년 준공`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
 
 function pickCaseRows(tables) {
   if (!Array.isArray(tables)) return [];
