@@ -2454,9 +2454,11 @@ function renderMolitTransactions(transactions) {
   // 실제 거래 목록만 남긴다. 목록은 인근 시세 감을 잡는 데 그대로 쓸모가 있다.
   const matched = Boolean(transactions.sales?.matched || transactions.rent?.matched);
 
+  // 매매와 전월세는 매칭 성공 여부가 따로 논다(매매만 단지가 잡히는 경우가 흔하다).
+  // 하나로 묶어 판단하면 못 잡은 쪽에 동네 전체 평균이 이 물건 시세처럼 붙는다.
   const blocks = [
-    renderMolitBlock("매매", transactions.sales, matched),
-    renderMolitBlock("전월세", transactions.rent, matched)
+    renderMolitBlock("매매", transactions.sales, Boolean(transactions.sales?.matched)),
+    renderMolitBlock("전월세", transactions.rent, Boolean(transactions.rent?.matched))
   ].filter(Boolean);
   if (!blocks.length) return "";
 
