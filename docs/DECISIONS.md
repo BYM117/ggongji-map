@@ -92,6 +92,16 @@
 호실 단위로 용도를 들고 있어 PNU가 있으면 46%가 갈린다. 1층은 99%가 상가.
 **영향:** `categories.js` (refineSubWithStandardPrice), `app.js` (refinedCategory)
 
+## 2026-09-08 · 미확정 종별은 서버가 내보내기 전에 확정한다
+
+**확정:** `resolveAmbiguousCategories`(`lib/normalize.mjs`)가 정규화 직후 국세청 인덱스를 조회해
+`상가·오피스텔 미확정`과 집합건물인 `용도 확인필요`의 용도를 확정한다. 조회 대상 판단은
+`needsStandardPriceLookup`(`categories.js`), 조회는 `lookupOfficetelKind`(`lib/officetel.mjs`).
+**이유:** 화면에서만 확정하면 지도에 뜬 물건이 조회를 끝낸 뒤라야 반영돼, 칩 건수가 처음엔
+틀린 값으로 보였다가 움직인다. 화면 밖 물건은 검색·필터에서 계속 미확정으로 남는다.
+수도권 뷰포트 기준 추정 766 → 323건, 확인필요 275 → 152건.
+**영향:** `lib/normalize.mjs`, `lib/officetel.mjs`, `lib/court.mjs`, `lib/onbid.mjs`, `categories.js`
+
 ## 2026-09-03 · 세션 작업 규칙을 `CLAUDE.md`에 둔다
 
 **확정:** 여러 세션이 한 폴더를 공유하므로, 작업 규칙(시작 시 git 확인 / 종료 시 커밋 /

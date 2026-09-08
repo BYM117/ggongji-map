@@ -253,11 +253,21 @@ export function classifyProperty({ category = "", address = "", title = "" } = {
 // 국세청 상업용건물·오피스텔 기준시가는 호실 단위로 용도를 들고 있다.
 // 조회가 성공하면 미확정 물건의 용도가 확정된다.
 export function refineSubWithStandardPrice(sub, source) {
-  if (sub !== "retailOrOfficetel") return sub;
+  if (!needsStandardPriceLookup(sub)) return sub;
   const text = String(source || "");
   if (text.startsWith("오피스텔")) return "officetel";
   if (text.startsWith("상업용건물")) return "retail";
   return sub;
+}
+
+// 국세청 인덱스를 뒤져볼 가치가 있는 미확정 물건인지 판단한다.
+// 인덱스는 상업용건물·오피스텔만 담고 있어서, 구분소유 건물이 아니면 뒤져도 안 나온다.
+// (실측: 상가·오피스텔 미확정 54% 확정, 집합건물 중 용도 확인필요 40% 확정,
+//  집합건물이 아닌 용도 확인필요는 0%. 그래서 마지막은 아예 조회하지 않는다.)
+export function needsStandardPriceLookup(sub, saleForm) {
+  if (sub === "retailOrOfficetel") return true;
+  if (sub === "unknown") return saleForm === undefined || saleForm === "unit";
+  return false;
 }
 
 // 실거래가 조회와 면적 추정이 쓰는 기존 유형 값. 새 세분류에서 파생시켜 한 곳에서만 정한다.
