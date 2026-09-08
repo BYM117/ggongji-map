@@ -1068,6 +1068,8 @@ const OFFICIAL_KIND_BY_SUB = {
   apartment: "commonHousing",
   villa: "commonHousing",
   house: "detachedHousing",
+  // 노인복지주택은 공동주택으로 공시가격이 나온다.
+  seniorHousing: "commonHousing",
   // 국세청 상업용건물·오피스텔 기준시가가 함께 담당하는 범위다.
   officetel: "officetel",
   retail: "officetel",

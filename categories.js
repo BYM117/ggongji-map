@@ -19,7 +19,8 @@ export const CATEGORY_GROUPS = [
       { id: "apartment", label: "아파트" },
       { id: "officetel", label: "오피스텔" },
       { id: "villa", label: "빌라·다세대" },
-      { id: "house", label: "단독·다가구" }
+      { id: "house", label: "단독·다가구" },
+      { id: "seniorHousing", label: "노인복지주택", hint: "실버타운. 만 60세 이상 입주 자격 등 제한이 붙습니다." }
     ]
   },
   {
@@ -138,6 +139,17 @@ const JIMOK_SUBS = {
 
 const VEHICLE_RE = /승용차|화물차|승합차|덤프트럭|굴착기|지게차|로더|크레인|\d{4}\s*년식/;
 
+// 지식산업센터는 법원이 "기타" 또는 "상가,오피스텔,근린시설"로만 보내서 이름으로 알아봐야 한다.
+// 브랜드명을 넣은 건 이름에 "지식산업센터"가 그대로 박힌 물건이 소수라서다.
+// 후보는 실제 데이터로 걸렀다 — 분류가 여기까지 내려오는 물건 중 주거 카테고리가 하나도 없고,
+// 국세청 인덱스 교차검증에서도 상업용으로 나오는 이름만 남겼다.
+// "비즈니스센터"는 11건 중 7건이 오피스텔이라 뺐다.
+const KNOWLEDGE_CENTER_RE = /지식산업센터|지식산업|아파트형공장|테크노|아이티타워|테라타워|하이테크|브이원|라이온스밸리|클러스터|벤처타워/;
+
+// 노인복지주택(실버타운). 주거지만 입주 자격·전매 제한이 붙어서 일반 주거와 섞으면 안 된다.
+// 국세청 상업용건물 인덱스에 56건 중 54건이 없다 = 상업시설이 아니라 주거시설이다.
+const SENIOR_HOUSING_RE = /시니어스|시니어캐슬|실버타운|노인복지/;
+
 // 주소 끝 대괄호가 목록구분("집합건물 철근콘크리트구조 59.94㎡" 같은 것)을 담고 있다.
 // 대괄호가 통째로 없으면 목록구분과 지목이 사라져 토지 세분화가 무너지므로,
 // 공급자가 대괄호를 어느 필드에 담아 보내든 찾아 쓸 수 있게 후보를 순서대로 본다.
@@ -205,7 +217,7 @@ export function classifyProperty({ category = "", address = "", title = "" } = {
   // 건물은 법원 leaf가 가장 믿을 만하다.
   if (LEAF_SUBS[cat]) {
     // 단, 지식산업센터는 법원이 상가/근린으로 묶어버려서 이름으로 되살린다.
-    if (LEAF_SUBS[cat] === "retail" && /지식산업센터|아파트형공장/.test(text)) return done("knowledgeCenter");
+    if (LEAF_SUBS[cat] === "retail" && KNOWLEDGE_CENTER_RE.test(text)) return done("knowledgeCenter");
     return done(LEAF_SUBS[cat]);
   }
 
@@ -221,7 +233,8 @@ export function classifyProperty({ category = "", address = "", title = "" } = {
   if (/근린생활시설|상점|소매점|음식점|판매시설/.test(body)) return done("retail");
 
   // 건물명·주소 키워드.
-  if (/지식산업센터|아파트형공장/.test(text)) return done("knowledgeCenter");
+  if (SENIOR_HOUSING_RE.test(text)) return done("seniorHousing");
+  if (KNOWLEDGE_CENTER_RE.test(text)) return done("knowledgeCenter");
   if (/생활숙박|레지던스|호텔|모텔|여관|펜션|콘도|리조트|관광숙박/.test(text)) return done("lodging");
   if (/오피스텔/.test(text)) return done("officetel");
   if (/아파트(?!형)/.test(text)) return done("apartment");
@@ -281,6 +294,7 @@ const LEGACY_TYPES = {
   lodging: "상가",
   commercialEtc: "상가",
   retailOrOfficetel: "오피스텔",
+  seniorHousing: "기타",
   knowledgeCenter: "상가",
   factory: "상가",
   warehouse: "상가",
