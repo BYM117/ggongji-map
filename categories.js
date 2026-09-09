@@ -158,19 +158,29 @@ export function pickClassifyAddress(...candidates) {
   return values.find((value) => value.includes("[")) || values[0] || "";
 }
 
+// 목록구분은 대괄호 안 첫 단어인 게 보통이지만 항상 그렇지는 않다.
+//  - 주소 중간에 "[현황:성산마리나호텔]" 같은 괄호가 먼저 붙는 물건이 있고
+//  - "[집합건물 [집합건물] 1동의 건물의 표시 …]"처럼 대괄호가 중첩된 물건도 있다
+// 그래서 첫 단어만 보면 목록구분을 놓친다. 위치와 무관하게 찾는다.
+// 순서가 중요하다 — "집합건물"이 "건물"보다 앞에 와야 한다.
+const LISTING_KIND_RE = /(집합건물|토지|건물|선박|어업권)/;
+
 function readBracket(address) {
   const text = String(address || "");
   const matches = text.match(/\[[^\]]*\]/g);
   // 대괄호 없이 목록구분만 따로 오는 필드(address.detail)도 그대로 읽을 수 있게 한다.
   const body = matches ? matches[matches.length - 1].slice(1, -1).trim() : text.trim();
-  if (!matches && !/^(집합건물|토지|건물|선박|어업권)(\s|$)/.test(body)) return { head: "", body: "" };
-  return { head: body.split(/\s+/)[0] || "", body };
+  const found = LISTING_KIND_RE.exec(body);
+  if (!found) return { head: "", body };
+  return { head: found[1], body, headIndex: found.index + found[1].length };
 }
 
-function readJimok(body) {
-  const tokens = body.split(/\s+/);
-  if (tokens.length < 2) return "";
-  return tokens[1].split(/[[(\d]/)[0];
+// 지목은 "토지" 바로 뒤 토큰이다. "토지"가 문자열 중간에 있을 수 있으므로
+// 첫 단어를 세지 않고 목록구분이 끝난 지점부터 읽는다.
+function readJimok(body, headIndex = 0) {
+  const rest = String(body || "").slice(headIndex).trim();
+  const token = rest.split(/\s+/)[0] || "";
+  return token.split(/[[(\d]/)[0];
 }
 
 // 지하/1층은 상가가 거의 확실하다(국세청 기준시가 대조: 1층 상가 99%, 지하 77%).
@@ -197,7 +207,7 @@ function saleFormOf(head) {
 export function classifyProperty({ category = "", address = "", title = "" } = {}) {
   const cat = String(category || "").trim();
   const addr = String(address || "");
-  const { head, body } = readBracket(addr);
+  const { head, body, headIndex } = readBracket(addr);
   const saleForm = saleFormOf(head);
   const done = (sub, confident = true) => ({ sub, group: groupIdOf(sub), saleForm, confident });
 
@@ -208,7 +218,7 @@ export function classifyProperty({ category = "", address = "", title = "" } = {
   if (cat === "자동차" || cat === "중기" || cat === "자동차,중기") return done("vehicle");
 
   // 토지는 지목이 곧 세분류다.
-  if (head === "토지") return done(JIMOK_SUBS[readJimok(body)] || "etcLand");
+  if (head === "토지") return done(JIMOK_SUBS[readJimok(body, headIndex)] || "etcLand");
 
   // 키워드 매칭 텍스트에 cat을 넣으면 안 된다.
   // 그룹 라벨("상가,오피스텔,근린시설")이 부분 문자열로 걸려서 전부 오피스텔이 되는 게 원래 버그였다.
@@ -271,6 +281,60 @@ export function refineSubWithStandardPrice(sub, source) {
   if (text.startsWith("오피스텔")) return "officetel";
   if (text.startsWith("상업용건물")) return "retail";
   return sub;
+}
+
+// 건축물대장 주용도 → 세분류.
+// 이건 국세청 호실 조회가 답을 못 냈을 때만 쓰는 폴백이다. 순서를 지켜야 하는 이유는,
+// 주용도가 "이 물건의 용도"가 아니라 "이 필지 대표 건물의 용도"이기 때문이다.
+// 수집기는 한 필지에 여러 동이 있으면 연면적이 가장 큰 동을 고른다. 그래서 주상복합에서
+// 아파트 동이 오피스텔 동보다 크면 오피스텔 물건에도 "공동주택"이 붙는다.
+// 국세청 인덱스는 호실 단위라 그런 문제가 없다 — 그쪽이 항상 우선이다.
+const BUILDING_PURPOSE_SUBS = {
+  "제1종근린생활시설": "retail",
+  "제2종근린생활시설": "retail",
+  "근린생활시설": "retail",
+  "판매시설": "retail",
+  "판매및영업시설": "retail",
+  // 오피스텔은 국세청 기준시가 대상이라 앞 단계에서 대부분 걸러진다.
+  // 여기까지 내려온 업무시설은 사무실 쪽으로 보는 게 실제에 가깝다.
+  "업무시설": "office",
+  "숙박시설": "lodging",
+  "공장": "factory",
+  "창고시설": "warehouse",
+  "단독주택": "house",
+  "공동주택": "villa",
+  "의료시설": "commercialEtc",
+  "교육연구시설": "commercialEtc",
+  "운동시설": "commercialEtc",
+  "노유자시설": "commercialEtc",
+  "문화및집회시설": "commercialEtc",
+  "위락시설": "commercialEtc",
+  "자동차관련시설": "commercialEtc",
+  "종교시설": "commercialEtc",
+  "운수시설": "commercialEtc",
+  "동물및식물관련시설": "commercialEtc",
+  "위험물저장및처리시설": "commercialEtc",
+  "자원순환관련시설": "commercialEtc",
+  "야영장시설": "commercialEtc",
+  "관광휴게시설": "commercialEtc",
+  "수련시설": "commercialEtc"
+};
+
+/**
+ * 건축물대장 주용도로 미확정 물건의 용도를 좁힌다.
+ * 확정할 수 없으면 원래 값을 그대로 돌려준다.
+ */
+export function refineSubWithBuildingPurpose(sub, purpose) {
+  if (!needsStandardPriceLookup(sub)) return sub;
+  const mapped = BUILDING_PURPOSE_SUBS[String(purpose || "").trim()];
+  if (!mapped) return sub;
+
+  // 법원은 상가·오피스텔·근린시설이라 했는데 대장은 공동주택이라고 하는 경우가 있다.
+  // 둘이 정면으로 어긋나면 대장의 "필지 대표 건물" 한계일 가능성이 높으므로 단정하지 않는다.
+  // (수집기 쪽 실측으로 이 조합이 634건 있고, 주상복합 주거부분일 수도 있어 판단이 갈린다)
+  if (sub === "retailOrOfficetel" && mapped === "villa") return sub;
+
+  return mapped;
 }
 
 // 국세청 인덱스를 뒤져볼 가치가 있는 미확정 물건인지 판단한다.
