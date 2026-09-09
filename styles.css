@@ -326,91 +326,8 @@ select:focus-visible {
   font-weight: 720;
 }
 
-.filters label.wide,
-.filters .category-filter {
+.filters label.wide {
   grid-column: 1 / -1;
-}
-
-/* ── 종별 칩 ──
-   드롭다운을 버리고 칩으로 바꾼 이유는 두 가지다.
-   1) 예전 <select>는 화면에 로드된 물건에서 옵션을 만들어서, 지도를 옮기면 항목이 바뀌었다.
-      칩은 목록과 순서가 고정이라 손이 위치를 기억한다.
-   2) 각 칩에 건수가 붙어 있어 비어 있는 칸을 눌러보는 헛수고가 없다.
-   색은 쓰지 않는다. 선택은 먹빛 반전, 나머지는 선으로만 말한다. */
-.category-filter {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.filter-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 720;
-}
-
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-.chip-row.sub {
-  padding-top: 8px;
-  border-top: 1px dashed var(--line);
-}
-
-.chip-row.sub[hidden] {
-  display: none;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.chip i {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 500;
-  color: var(--soft);
-  letter-spacing: -0.02em;
-}
-
-.chip.active {
-  border-color: var(--frame);
-  background: var(--frame);
-  color: var(--frame-ink);
-}
-
-.chip.active i {
-  color: rgba(245, 244, 241, 0.65);
-}
-
-/* 건수가 0인 칩은 지우지 않는다. 사라지면 목록이 다시 움직이기 때문이다. */
-.chip.empty {
-  border-color: var(--line);
-  color: var(--soft);
-}
-
-.chip:focus-visible {
-  outline: 2px solid var(--signal);
-  outline-offset: 2px;
 }
 
 .filters select,
@@ -2583,15 +2500,115 @@ select:focus-visible {
   height: 16px;
 }
 
-.chip {
-  min-height: 34px;
-  padding: 0 11px;
-  font-size: 12.5px;
-}
-
 .sidebar {
   gap: 10px;
   padding: 14px;
+}
+
+/* ── 필터 입력 ──
+   종별과 매각 형태는 칩에서 드롭다운으로 돌아왔다. 칩은 건수를 눈으로 훑을 수 있어 좋았지만
+   대분류 6 + 세분류 최대 7 + 매각 형태 5가 늘 펼쳐져 있어 필터 영역이 300px을 넘겼고,
+   정작 봐야 할 목록이 그만큼 밀려났다. 건수는 옵션 라벨에 그대로 붙여 유지한다. */
+.filters label[hidden] {
+  display: none;
+}
+
+/* 라벨과 현재 값은 한 줄에 둔다. 예전에는 label 안의 span · output · input이 세로 그리드의
+   세 줄을 각각 차지해서, 값만 오른쪽 끝에 홀로 떨어지고 라벨과 슬라이더 사이가 두 줄만큼
+   벌어졌다. 무엇의 값인지도, 어디에 맞춰 정렬된 것인지도 읽히지 않았다. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filters .range-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.filters .range-field.wide {
+  grid-column: 1 / -1;
+}
+
+/* ── 공시가 범위: 손잡이 두 개 ──
+   input[type=range] 하나로는 구간을 잡을 수 없어 두 개를 겹쳐 놓는다.
+   위에 놓인 input이 아래 것의 손잡이까지 덮어버리므로, 트랙은 컨테이너가 그리고
+   input 자신은 투명하게 비운 뒤 손잡이에만 포인터를 되돌려준다. */
+.dual-range {
+  --thumb-size: 18px;
+  --range-start: 0;
+  --range-end: 1;
+  position: relative;
+  height: 18px;
+}
+
+.dual-range::before,
+.dual-range::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.dual-range::before {
+  right: 0;
+  left: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.dual-range::after {
+  right: calc(100% - (var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--range-end)));
+  left: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--range-start));
+  background: var(--signal);
+}
+
+.filters .dual-range input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+.filters .dual-range input[type="range"]::-webkit-slider-runnable-track {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.filters .dual-range input[type="range"]::-moz-range-track {
+  background: transparent;
+  box-shadow: none;
+}
+
+.filters .dual-range input[type="range"]::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+
+.filters .dual-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+}
+
+/* 두 손잡이가 겹치면 위에 있는 상한 쪽만 잡힌다. 그래도 막히지는 않는다 —
+   겹친 자리에서 오른쪽으로 끌면 상한이 떨어져 나가고 하한이 다시 드러난다.
+   하한은 마지막 눈금 앞에서 멈추므로(app.js), 오른쪽 끝에서 둘 다 굳는 일은 없다. */
+.dual-range input[type="range"]:first-of-type {
+  z-index: 1;
+}
+
+.dual-range input[type="range"]:last-of-type {
+  z-index: 2;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2741,8 +2758,8 @@ select:focus-visible {
       margin 0.28s ease;
   }
 
-  /* 종별 칩이 들어오면서 필터 높이가 340px을 넘겼다. 고정 상한으로 두면 세분류 행이 잘려
-     "칩이 안 보이는" 상태가 되므로, 펼침 애니메이션용 상한만 넉넉히 두고 내부를 스크롤시킨다. */
+  /* 펼침 애니메이션용 상한은 넉넉히 두고 내부를 스크롤시킨다. 고정 상한으로 두면
+     세부 종별처럼 나중에 열리는 칸이 잘려서 "안 보이는" 상태가 된다. */
   /* full에서만 편다. half 시트는 약 422px인데 필터가 341px를 가져가면 목록 자리가
      24px밖에 안 남고 시트 밖으로 넘친다. 게다가 필터가 자체 스크롤을 가지므로,
      목록을 넘기려던 손가락이 필터 안에서 끝나 "중간에서 막힌다"고 느껴진다.

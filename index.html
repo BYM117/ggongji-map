@@ -50,20 +50,6 @@
             <span>지역</span>
             <select id="regionFilter"></select>
           </label>
-          <div class="category-filter">
-            <span class="filter-label">물건 종별</span>
-            <div class="chip-row" id="categoryGroups" role="group" aria-label="물건 대분류"></div>
-            <div class="chip-row sub" id="categorySubs" role="group" aria-label="물건 세분류"></div>
-          </div>
-          <div class="category-filter">
-            <span class="filter-label">매각 형태</span>
-            <div class="chip-row" id="saleForms" role="group" aria-label="매각 형태"></div>
-          </div>
-          <label class="wide">
-            <span>최소 공시기준 할인율</span>
-            <output id="discountValue">전체</output>
-            <input id="discountFilter" type="range" min="-100" max="70" step="5" value="-100" />
-          </label>
           <label>
             <span>최대 위험도</span>
             <select id="riskFilter">
@@ -73,15 +59,29 @@
               <option value="높음">높음 이하</option>
             </select>
           </label>
-          <label class="wide">
-            <span>정렬</span>
-            <select id="sortBy">
-              <option value="score">추천 점수순</option>
-              <option value="officialDiscount">공시기준 할인율순</option>
-              <option value="marketDiscount">실거래 할인율순</option>
-              <option value="bidDate">입찰일 빠른순</option>
-            </select>
+          <label>
+            <span>물건 종별</span>
+            <select id="categoryGroupFilter" aria-label="물건 대분류"></select>
           </label>
+          <label>
+            <span>매각 형태</span>
+            <select id="saleFormFilter"></select>
+          </label>
+          <label class="wide" id="categorySubField" hidden>
+            <span>세부 종별</span>
+            <select id="categorySubFilter" aria-label="물건 세분류"></select>
+          </label>
+          <label class="wide">
+            <span class="field-head">최소 공시기준 할인율<output id="discountValue">전체</output></span>
+            <input id="discountFilter" type="range" min="-100" max="70" step="5" value="-100" />
+          </label>
+          <div class="range-field wide">
+            <span class="field-head">공시가 범위<output id="officialRangeValue">전체</output></span>
+            <div class="dual-range" id="officialRange">
+              <input id="officialMinFilter" type="range" min="0" max="18" step="1" value="0" aria-label="공시가 하한" />
+              <input id="officialMaxFilter" type="range" min="0" max="18" step="1" value="18" aria-label="공시가 상한" />
+            </div>
+          </div>
         </section>
 
         <section class="property-list" id="propertyList" aria-label="물건 목록"></section>

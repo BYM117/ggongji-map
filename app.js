@@ -1,5 +1,12 @@
 const LAND_PRICE_YEAR = new Date().getFullYear().toString();
 const DEFAULT_DISCOUNT_FILTER = -100;
+// 공시가 범위 슬라이더의 눈금. 공시가는 0원부터 수십억까지 흩어져 있어서 선형 슬라이더로는
+// 1억 근처를 손으로 집을 수가 없다(한 칸이 수천만원씩 튄다). 사람이 실제로 말하는 단위로
+// 눈금을 끊고, 슬라이더에는 그 눈금의 번호만 태운다.
+const OFFICIAL_PRICE_STEPS = [
+  0, 5e7, 1e8, 1.5e8, 2e8, 2.5e8, 3e8, 4e8, 5e8, 6e8, 7e8, 8e8, 1e9, 1.2e9, 1.5e9, 2e9, 3e9, 5e9, Infinity
+];
+const OFFICIAL_MAX_INDEX = OFFICIAL_PRICE_STEPS.length - 1;
 const REFERENCE_HYDRATION_LIMIT = 60;
 const HYDRATION_MAX = 160;
 const LIST_RENDER_LIMIT = 50;
@@ -34,14 +41,16 @@ const state = {
   selectedId: null,
   filters: {
     region: "all",
-    // 물건 종별은 두 단계다. group을 고르면 그 그룹의 세분류 칩이 열리고,
-    // subs가 비어 있으면 "그룹 전체"를 뜻한다.
+    // 물건 종별은 두 단계다. 대분류를 고르면 그 그룹의 세부 종별 드롭다운이 열리고,
+    // categorySub가 "all"이면 "그룹 전체"를 뜻한다.
     categoryGroup: "all",
-    categorySubs: new Set(),
+    categorySub: "all",
     saleForm: "all",
     risk: "all",
     discount: DEFAULT_DISCOUNT_FILTER,
-    sortBy: "score",
+    // 공시가 범위는 금액이 아니라 OFFICIAL_PRICE_STEPS의 눈금 번호로 들고 있는다.
+    officialMin: 0,
+    officialMax: OFFICIAL_MAX_INDEX,
     keyword: ""
   },
   map: null,
@@ -85,13 +94,17 @@ const dom = {
   detail: document.querySelector("#detailPanel"),
   cardTemplate: document.querySelector("#propertyCardTemplate"),
   regionFilter: document.querySelector("#regionFilter"),
-  categoryGroups: document.querySelector("#categoryGroups"),
-  categorySubs: document.querySelector("#categorySubs"),
-  saleForms: document.querySelector("#saleForms"),
+  categoryGroupFilter: document.querySelector("#categoryGroupFilter"),
+  categorySubFilter: document.querySelector("#categorySubFilter"),
+  categorySubField: document.querySelector("#categorySubField"),
+  saleFormFilter: document.querySelector("#saleFormFilter"),
   riskFilter: document.querySelector("#riskFilter"),
   discountFilter: document.querySelector("#discountFilter"),
   discountValue: document.querySelector("#discountValue"),
-  sortBy: document.querySelector("#sortBy"),
+  officialMin: document.querySelector("#officialMinFilter"),
+  officialMax: document.querySelector("#officialMaxFilter"),
+  officialRange: document.querySelector("#officialRange"),
+  officialRangeValue: document.querySelector("#officialRangeValue"),
   keywordSearch: document.querySelector("#keywordSearch"),
   resetFilters: document.querySelector("#resetFilters"),
   fallbackMap: document.querySelector("#fallbackMap"),
@@ -107,6 +120,7 @@ init();
 
 function init() {
   populateFilters();
+  setupOfficialRange();
   bindEvents();
   setupBottomSheet();
   render();
@@ -678,16 +692,66 @@ function setDataStatus(text, tone) {
 }
 
 function populateFilters() {
-  const regions = ["all", ...new Set(properties.map((item) => item.region))];
-  dom.regionFilter.innerHTML = regions.map((region) => option(region, region === "all" ? "전체" : region)).join("");
+  dom.regionFilter.innerHTML = regionOptionsHtml();
+  dom.regionFilter.value = state.filters.region;
+  if (state.filters.region !== "all" && !dom.regionFilter.value) {
+    // 지도를 옮겨 그 지역 물건이 화면에서 빠져도 선택은 살아 있다.
+    // 옵션까지 사라지면 select가 빈칸으로 보여서 지금 무엇으로 걸러졌는지 알 수가 없다.
+    dom.regionFilter.insertAdjacentHTML(
+      "beforeend",
+      `<optgroup label="선택 중">${option(state.filters.region, state.filters.region)}</optgroup>`
+    );
+    dom.regionFilter.value = state.filters.region;
+  }
 }
 
-// 종별 칩은 화면에 뭐가 떠 있든 목록과 순서가 고정이다.
-// 예전처럼 로드된 물건에서 옵션을 만들면 지도를 옮길 때마다 항목이 바뀌어서 고를 수가 없다.
-// 대신 각 칩에 현재 조건에서의 건수를 붙여, 비어 있는 칸을 눌러보는 헛수고를 없앤다.
+// 지역 목록은 화면에 로드된 물건에서 만들어지므로, 예전에는 "서울특별시 강남구" 다음에
+// "경기도 수원시"가 오는 식으로 도착 순서대로 섞여 있었다. 같은 시·도끼리 optgroup으로
+// 묶고 그 안을 가나다순으로 고정한다. 옵션 값은 물건의 region 문자열 그대로 둔다 —
+// 필터가 문자열 일치로 거르기 때문에 라벨만 짧게 보여주고 값은 건드리지 않는다.
+function regionOptionsHtml() {
+  const groups = new Map();
+  for (const item of properties) {
+    const region = String(item.region || "").trim();
+    if (!region) continue;
+    const [head, ...rest] = region.split(/\s+/);
+    const province = rest.length ? canonicalProvince(head) : "기타";
+    const label = rest.length ? rest.join(" ") : region;
+    if (!groups.has(province)) groups.set(province, new Map());
+    groups.get(province).set(region, label);
+  }
+
+  return [
+    option("all", "전체"),
+    ...[...groups.keys()].sort(compareProvince).map((province) => {
+      const entries = [...groups.get(province)].sort((a, b) => a[1].localeCompare(b[1], "ko"));
+      return `<optgroup label="${escapeHtml(province)}">${entries.map(([value, label]) => option(value, label)).join("")}</optgroup>`;
+    })
+  ].join("");
+}
+
+// 같은 지역이 "서울"과 "서울특별시" 두 이름으로 들어온다. 소스마다 주소 표기가 달라서인데,
+// 그대로 두면 optgroup이 둘로 갈라져 강남구와 서초구가 다른 묶음에 놓인다.
+function canonicalProvince(token) {
+  return PROVINCE_ORDER.find((full) => full.startsWith(token) || token.startsWith(full)) || token;
+}
+
+const PROVINCE_ORDER = Object.keys(PROVINCE_CENTERS);
+
+function compareProvince(a, b) {
+  const rank = (name) => {
+    const index = PROVINCE_ORDER.indexOf(name);
+    return index < 0 ? PROVINCE_ORDER.length : index;
+  };
+  return rank(a) - rank(b) || a.localeCompare(b, "ko");
+}
+
+// 종별 드롭다운의 항목과 순서는 화면에 뭐가 떠 있든 고정이다.
+// 로드된 물건에서 옵션을 만들면 지도를 옮길 때마다 항목이 바뀌어서 고를 수가 없다.
+// 대신 각 항목에 현재 조건에서의 건수를 붙여, 비어 있는 칸을 골라보는 헛수고를 없앤다.
 function renderCategoryFilters(scopeItems) {
   const taxonomy = window.GGONGJI_CATEGORIES;
-  if (!taxonomy || !dom.categoryGroups) return;
+  if (!taxonomy || !dom.categoryGroupFilter) return;
 
   const subCounts = new Map();
   const formCounts = new Map();
@@ -701,64 +765,56 @@ function renderCategoryFilters(scopeItems) {
   const groupCount = (group) => group.subs.reduce((sum, sub) => sum + (subCounts.get(sub.id) || 0), 0);
   const activeGroup = state.filters.categoryGroup;
 
-  dom.categoryGroups.innerHTML = [
-    chipHtml({ value: "all", label: "전체", count: scopeItems.length, active: activeGroup === "all" }),
-    ...taxonomy.CATEGORY_GROUPS.map((group) =>
-      chipHtml({ value: group.id, label: group.label, count: groupCount(group), active: activeGroup === group.id })
-    )
+  dom.categoryGroupFilter.innerHTML = [
+    option("all", countLabel("전체", scopeItems.length)),
+    ...taxonomy.CATEGORY_GROUPS.map((group) => option(group.id, countLabel(group.label, groupCount(group))))
   ].join("");
+  dom.categoryGroupFilter.value = activeGroup;
 
+  // 세부 종별은 대분류를 고른 뒤에만 의미가 있다. 대분류가 "전체"면 칸 자체를 감춘다 —
+  // 비활성 상태로 남겨두면 고를 수 있는 칸처럼 보여서 계속 눌러보게 된다.
   const group = taxonomy.CATEGORY_GROUPS.find((entry) => entry.id === activeGroup);
-  dom.categorySubs.hidden = !group;
-  dom.categorySubs.innerHTML = group
-    ? group.subs
-        .map((sub) =>
-          chipHtml({
-            value: sub.id,
-            label: sub.label,
-            count: subCounts.get(sub.id) || 0,
-            active: state.filters.categorySubs.has(sub.id),
-            title: sub.hint || ""
-          })
-        )
-        .join("")
+  dom.categorySubField.hidden = !group;
+  dom.categorySubFilter.innerHTML = group
+    ? [
+        option("all", countLabel(`${group.label} 전체`, groupCount(group))),
+        ...group.subs.map((sub) => option(sub.id, countLabel(sub.label, subCounts.get(sub.id) || 0), sub.hint || ""))
+      ].join("")
     : "";
+  if (group) dom.categorySubFilter.value = state.filters.categorySub;
 
-  dom.saleForms.innerHTML = [
-    chipHtml({ value: "all", label: "전체", count: scopeItems.length, active: state.filters.saleForm === "all" }),
+  dom.saleFormFilter.innerHTML = [
+    option("all", countLabel("전체", scopeItems.length)),
     ...taxonomy.SALE_FORMS.map((form) =>
-      chipHtml({
-        value: form.id,
-        label: form.label,
-        count: formCounts.get(form.id) || 0,
-        active: state.filters.saleForm === form.id,
-        title: form.hint || ""
-      })
+      option(form.id, countLabel(form.label, formCounts.get(form.id) || 0), form.hint || "")
     )
   ].join("");
+  dom.saleFormFilter.value = state.filters.saleForm;
 }
 
-function chipHtml({ value, label, count, active, title = "" }) {
-  const empty = count === 0 && value !== "all";
-  return `<button type="button" class="chip${active ? " active" : ""}${empty ? " empty" : ""}" data-value="${escapeHtml(value)}"${
-    title ? ` title="${escapeHtml(title)}"` : ""
-  } aria-pressed="${active ? "true" : "false"}">${escapeHtml(label)}<i>${count.toLocaleString("ko-KR")}</i></button>`;
+function countLabel(label, count) {
+  return `${label} (${count.toLocaleString("ko-KR")})`;
 }
 
-function option(value, label) {
-  return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+function option(value, label, title = "") {
+  return `<option value="${escapeHtml(value)}"${title ? ` title="${escapeHtml(title)}"` : ""}>${escapeHtml(label)}</option>`;
 }
 
 function bindEvents() {
   dom.regionFilter.addEventListener("change", (event) => updateFilter("region", event.target.value));
-  dom.categoryGroups.addEventListener("click", (event) => handleGroupChip(event));
-  dom.categorySubs.addEventListener("click", (event) => handleSubChip(event));
-  dom.saleForms.addEventListener("click", (event) => handleSaleFormChip(event));
+  dom.categoryGroupFilter.addEventListener("change", (event) => {
+    // 대분류를 바꾸면 이전 그룹의 세부 종별 선택은 의미가 없어지므로 함께 되돌린다.
+    state.filters.categorySub = "all";
+    updateFilter("categoryGroup", event.target.value);
+  });
+  dom.categorySubFilter.addEventListener("change", (event) => updateFilter("categorySub", event.target.value));
+  dom.saleFormFilter.addEventListener("change", (event) => updateFilter("saleForm", event.target.value));
   dom.riskFilter.addEventListener("change", (event) => updateFilter("risk", event.target.value));
-  dom.sortBy.addEventListener("change", (event) => updateFilter("sortBy", event.target.value));
   dom.discountFilter.addEventListener("input", (event) => {
     updateFilter("discount", Number(event.target.value));
   });
+  dom.officialMin.addEventListener("input", handleOfficialRangeInput);
+  dom.officialMax.addEventListener("input", handleOfficialRangeInput);
   dom.keywordSearch.addEventListener("input", handleKeywordSearchInput);
   dom.resetFilters.addEventListener("click", resetFilters);
   document.addEventListener("click", (event) => {
@@ -770,31 +826,45 @@ function bindEvents() {
   });
 }
 
-function chipValue(event) {
-  const chip = event.target.closest(".chip");
-  return chip ? chip.dataset.value : "";
+function setupOfficialRange() {
+  // 눈금 개수는 OFFICIAL_PRICE_STEPS 한 곳에서만 정한다.
+  // HTML의 max를 따로 적어두면 눈금을 늘렸을 때 손잡이가 끝까지 가지 않는다.
+  dom.officialMin.max = String(OFFICIAL_MAX_INDEX);
+  dom.officialMax.max = String(OFFICIAL_MAX_INDEX);
+  dom.officialMin.value = String(state.filters.officialMin);
+  dom.officialMax.value = String(state.filters.officialMax);
+  syncOfficialRangeUi();
 }
 
-function handleGroupChip(event) {
-  const value = chipValue(event);
-  if (!value) return;
-  // 대분류를 바꾸면 이전 그룹의 세분류 선택은 의미가 없어지므로 함께 비운다.
-  state.filters.categorySubs = new Set();
-  updateFilter("categoryGroup", state.filters.categoryGroup === value && value !== "all" ? "all" : value);
+function handleOfficialRangeInput(event) {
+  // 마지막 눈금은 상한 쪽의 "무제한"이다. 하한이 거기까지 올라가면 "무제한 이상"이 되어
+  // 어떤 물건도 남지 않으므로, 하한은 한 칸 앞에서 세운다.
+  if (Number(dom.officialMin.value) > OFFICIAL_MAX_INDEX - 1) {
+    dom.officialMin.value = String(OFFICIAL_MAX_INDEX - 1);
+  }
+  const min = Number(dom.officialMin.value);
+  const max = Number(dom.officialMax.value);
+  // 두 손잡이가 서로를 지나치면 값을 맞바꾸지 않고 그 자리에 붙여 세운다.
+  // 맞바꾸면 끌고 있던 손잡이가 손가락 아래에서 반대편으로 튄다.
+  if (min > max) {
+    if (event.target === dom.officialMin) dom.officialMin.value = String(max);
+    else dom.officialMax.value = String(min);
+  }
+  state.filters.officialMin = Number(dom.officialMin.value);
+  state.filters.officialMax = Number(dom.officialMax.value);
+  state.listLimit = LIST_RENDER_LIMIT;
+  syncOfficialRangeUi();
+  render();
 }
 
-function handleSubChip(event) {
-  const value = chipValue(event);
-  if (!value) return;
-  const subs = state.filters.categorySubs;
-  subs.has(value) ? subs.delete(value) : subs.add(value);
-  updateFilter("categorySubs", subs);
-}
-
-function handleSaleFormChip(event) {
-  const value = chipValue(event);
-  if (!value) return;
-  updateFilter("saleForm", state.filters.saleForm === value ? "all" : value);
+function syncOfficialRangeUi() {
+  const { officialMin, officialMax } = state.filters;
+  dom.officialRangeValue.textContent = formatOfficialRangeFilter(officialMin, officialMax);
+  // 선택 구간은 CSS가 그린다. 두 input이 겹쳐 있어서 채움 막대를 따로 둘 수밖에 없다.
+  // 넘기는 값은 %가 아니라 0~1 비율이다. 손잡이 중심은 트랙 양끝에서 손잡이 반지름만큼
+  // 안쪽으로 들어와 있어서, 폭 계산을 CSS 쪽에서 해야 막대 끝과 손잡이가 어긋나지 않는다.
+  dom.officialRange.style.setProperty("--range-start", String(officialMin / OFFICIAL_MAX_INDEX));
+  dom.officialRange.style.setProperty("--range-end", String(officialMax / OFFICIAL_MAX_INDEX));
 }
 
 function handleKeywordSearchInput(event) {
@@ -861,11 +931,12 @@ function resetFilters() {
   state.filters = {
     region: "all",
     categoryGroup: "all",
-    categorySubs: new Set(),
+    categorySub: "all",
     saleForm: "all",
     risk: "all",
     discount: DEFAULT_DISCOUNT_FILTER,
-    sortBy: "score",
+    officialMin: 0,
+    officialMax: OFFICIAL_MAX_INDEX,
     keyword: ""
   };
   state.selectedId = null;
@@ -878,7 +949,9 @@ function resetFilters() {
   dom.riskFilter.value = "all";
   dom.discountFilter.value = String(DEFAULT_DISCOUNT_FILTER);
   dom.discountValue.textContent = formatDiscountFilter(DEFAULT_DISCOUNT_FILTER);
-  dom.sortBy.value = "score";
+  dom.officialMin.value = "0";
+  dom.officialMax.value = String(OFFICIAL_MAX_INDEX);
+  syncOfficialRangeUi();
   dom.keywordSearch.value = "";
   render();
 }
@@ -1129,19 +1202,31 @@ function matchesFilters(item) {
     (state.filters.region === "all" || item.region === state.filters.region) &&
     riskOrder[item.risk] <= riskLimit &&
     matchesDiscount &&
+    matchesOfficialRange(item) &&
     matchesKeyword
   );
 }
 
-// 종별 판정은 따로 둔다. 칩에 붙는 건수는 "종별을 뺀 나머지 조건"을 만족하는 물건으로 세야
-// 대분류를 하나 고른 순간 다른 칩이 전부 0으로 보이는 일이 없다.
+// 공시가 범위. 양 끝에 있으면 아무것도 거르지 않는다 — 한쪽이라도 좁히는 순간부터는
+// 공시가를 아직 못 구한 물건이 빠진다. 금액으로 거르겠다고 한 이상, 금액을 모르는 물건은
+// 조건에 맞는지 판단할 방법이 없기 때문이다.
+function matchesOfficialRange(item) {
+  const { officialMin, officialMax } = state.filters;
+  if (officialMin <= 0 && officialMax >= OFFICIAL_MAX_INDEX) return true;
+  if (!item.officialComparable) return false;
+  const value = Number(item.officialValue) || 0;
+  return value >= OFFICIAL_PRICE_STEPS[officialMin] && value <= OFFICIAL_PRICE_STEPS[officialMax];
+}
+
+// 종별 판정은 따로 둔다. 옵션에 붙는 건수는 "종별을 뺀 나머지 조건"을 만족하는 물건으로 세야
+// 대분류를 하나 고른 순간 다른 항목이 전부 0으로 보이는 일이 없다.
 function matchesCategory(item) {
-  const { categoryGroup, categorySubs, saleForm } = state.filters;
+  const { categoryGroup, categorySub, saleForm } = state.filters;
   if (saleForm !== "all" && (item.saleForm || "other") !== saleForm) return false;
   if (categoryGroup === "all") return true;
   if ((item.categoryGroup || "etc") !== categoryGroup) return false;
-  if (!categorySubs.size) return true;
-  return categorySubs.has(item.categorySub || "unknown");
+  if (categorySub === "all") return true;
+  return (item.categorySub || "unknown") === categorySub;
 }
 
 function compactSearchText(value) {
@@ -1151,15 +1236,13 @@ function compactSearchText(value) {
     .replace(/[\s\-‐‑‒–—―·]/g, "");
 }
 
+// 정렬 드롭다운은 없앴다. 고를 수 있는 기준이 넷이나 됐지만 실제로는 "공시가 대비 얼마나
+// 싼가"를 보러 오는 도구라, 나머지는 자리만 차지하고 기본값(추천 점수순)은 무엇으로 매겨진
+// 순서인지 화면에서 설명할 방법이 없었다. 공시가 기준을 못 구한 물건은 비교가 안 되므로 뒤로 민다.
 function sortProperties(items) {
   return [...items].sort((a, b) => {
-    if (state.filters.sortBy === "officialDiscount") {
-      if (a.officialComparable !== b.officialComparable) return a.officialComparable ? -1 : 1;
-      return b.officialDiscount - a.officialDiscount;
-    }
-    if (state.filters.sortBy === "marketDiscount") return b.marketDiscount - a.marketDiscount;
-    if (state.filters.sortBy === "bidDate") return new Date(a.bidDate) - new Date(b.bidDate);
-    return b.score - a.score;
+    if (a.officialComparable !== b.officialComparable) return a.officialComparable ? -1 : 1;
+    return b.officialDiscount - a.officialDiscount;
   });
 }
 
@@ -2663,6 +2746,15 @@ function formatPercent(value) {
 
 function formatDiscountFilter(value) {
   return value <= DEFAULT_DISCOUNT_FILTER ? "전체" : `${value}%`;
+}
+
+function formatOfficialRangeFilter(minIndex, maxIndex) {
+  const min = OFFICIAL_PRICE_STEPS[minIndex];
+  const max = OFFICIAL_PRICE_STEPS[maxIndex];
+  if (minIndex <= 0 && maxIndex >= OFFICIAL_MAX_INDEX) return "전체";
+  if (maxIndex >= OFFICIAL_MAX_INDEX) return `${formatWon(min)} 이상`;
+  if (minIndex <= 0) return `${formatWon(max)} 이하`;
+  return `${formatWon(min)} ~ ${formatWon(max)}`;
 }
 
 function formatSignedPercent(value) {
