@@ -2775,6 +2775,14 @@ select:focus-visible {
     border-top: 1px solid var(--line-strong);
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -8px 30px rgba(33, 30, 27, 0.2);
+    /* 위 1040 블록의 `.detail-panel { overflow: visible }`을 여기서 되돌린다.
+       그건 모바일이 문서처럼 세로로 흐르던 시절의 값이다. 상세를 고정 오버레이로
+       바꾼 뒤에도 남아 있어서, 내용이 화면보다 길면(실측 1,138px vs 762px) 넘치는
+       376px이 app-shell의 overflow:hidden에 그냥 잘려나갔다. 스크롤 자체가 없었다. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     transform: translateY(100%);
   }
 
