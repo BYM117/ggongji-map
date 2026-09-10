@@ -1897,7 +1897,54 @@ function adminClusterLevel(zoom) {
   return "";
 }
 
+// 한 화면에 등급 하나를 적용하면 서울 25개 구와 경기 31개 시가 같이 쪼개진다.
+// 서울은 30km 안에 몰려 있어 라벨이 겹쳐 뭉개지고, 경기는 130km에 퍼져 있어 안 겹친다.
+// 등급이 같아도 화면에서 보이는 모습이 딴판이라, 등급을 화면이 아니라 상위 구역마다 따로 정한다.
+// (시·군·구로 쪼갤지는 시·도마다, 읍·면·동으로 쪼갤지는 시·군·구마다)
+const ADMIN_PARENT_LEVEL = { district: "province", local: "district" };
+// 상위 구역이 화면의 이만큼을 차지할 때만 쪼갠다. 낮추면 잘게, 올리면 뭉뚱그려 보인다.
+const ADMIN_SPLIT_SHARE = 0.45;
+
 function makeAdminClusters(items, level) {
+  const parentLevel = ADMIN_PARENT_LEVEL[level];
+  const bounds = parentLevel ? currentMapBounds() : null;
+  if (!bounds) return limitAdminClusters(buildAdminClusters(items, level), level);
+
+  const groups = new Map();
+  items.forEach((item) => {
+    const key = adminClusterLabel(item, parentLevel);
+    const group = groups.get(key) || [];
+    group.push(item);
+    groups.set(key, group);
+  });
+
+  const clusters = [];
+  groups.forEach((group) => {
+    const split = adminSpreadShare(group, bounds) >= ADMIN_SPLIT_SHARE;
+    clusters.push(...buildAdminClusters(group, split ? level : parentLevel));
+  });
+
+  return limitAdminClusters(clusters, level);
+}
+
+// 최소~최대로 폭을 재면 외딴 물건 하나가 구역 전체를 넓게 만든다
+// (인천 옹진군 섬 때문에 인천이 경기도만큼 넓게 잡혔다). 가운데 90%만 보고 잰다.
+function adminSpreadShare(items, bounds) {
+  const span = (values) => {
+    const sorted = values.slice().sort((a, b) => a - b);
+    if (sorted.length < 10) return sorted[sorted.length - 1] - sorted[0];
+    return sorted[Math.ceil(sorted.length * 0.95) - 1] - sorted[Math.floor(sorted.length * 0.05)];
+  };
+
+  const viewLat = Math.max(bounds.neLat - bounds.swLat, 1e-6);
+  const viewLng = Math.max(bounds.neLng - bounds.swLng, 1e-6);
+  return Math.max(
+    span(items.map((item) => item.lat)) / viewLat,
+    span(items.map((item) => item.lng)) / viewLng
+  );
+}
+
+function buildAdminClusters(items, level) {
   const buckets = new Map();
 
   items.forEach((item) => {
@@ -1930,7 +1977,7 @@ function makeAdminClusters(items, level) {
     };
   });
 
-  return limitAdminClusters(clusters, level);
+  return clusters;
 }
 
 function adminClusterLabel(item, level) {
