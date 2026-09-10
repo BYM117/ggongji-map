@@ -13,6 +13,7 @@ import { fetchCourtAuctionDetail, proxyCourtAuctionAsset } from "./lib/court-det
 import { fetchSeoulDeals } from "./lib/seoul.mjs";
 import { fetchOnbid, fetchOnbidProperties, fetchOnbidViewportProperties, onbidEndpoint } from "./lib/onbid.mjs";
 import {
+  fetchCourtAuctionClusters,
   fetchCourtAuctionProperties,
   fetchCourtAuctionViewportProperties,
   searchCourtAuctionProperties
@@ -184,6 +185,12 @@ async function handleApi(url, response) {
       return;
     }
 
+    if (url.pathname === "/api/viewport-clusters") {
+      const payload = await fetchViewportClusters(url.searchParams);
+      sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
     if (url.pathname === "/api/viewport-properties") {
       const payload = await fetchViewportProperties(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
@@ -327,6 +334,41 @@ async function fetchViewportProperties(params) {
       returnedCount: properties.length,
       details: results.map((result) => result.diagnostics || {})
     }
+  };
+}
+
+// 넓은 화면용. 물건을 하나씩 내려보내는 대신 시·도별 개수만 센다.
+// 쪼개야 하는 시·도가 있어 집계로 표현할 수 없으면 needs_detail을 돌려준다 —
+// 그때는 호출부가 /api/viewport-properties 로 가야 한다.
+async function fetchViewportClusters(params) {
+  const bounds = parseViewportBounds(params);
+  if (!bounds) {
+    return {
+      ok: false,
+      error: "missing_bounds",
+      message: "swLat, swLng, neLat, neLng가 필요합니다.",
+      clusters: []
+    };
+  }
+
+  const payload = await fetchCourtAuctionClusters(params, bounds);
+  if (!payload) {
+    return {
+      ok: true,
+      mode: "needs_detail",
+      message: "이 화면은 시·군·구까지 나눠 봐야 해서 집계로 답할 수 없습니다.",
+      clusters: [],
+      diagnostics: { bounds }
+    };
+  }
+
+  return {
+    ...payload,
+    mode: "clusters",
+    message: payload.clusters.length
+      ? "현재 지도 화면의 시·도별 경공매 물건 수입니다."
+      : "현재 지도 화면 안에 표시할 물건이 없습니다.",
+    diagnostics: { ...(payload.diagnostics || {}), bounds }
   };
 }
 
