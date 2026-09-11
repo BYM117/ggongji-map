@@ -212,7 +212,9 @@ async function loadViewportProperties({ force = false } = {}) {
 
   // 이미 불러온(여유분 포함) 영역 안에서의 이동/줌은 재요청 없이 클라이언트 필터로 처리한다.
   // 단, 새로 화면에 들어온 물건도 공시가격을 채워야 하므로 하이드레이션은 다시 조준한다.
-  if (!force && state.loadedBounds && boundsContain(state.loadedBounds, bounds)) {
+  // 집계 상태에서는 물건을 하나도 안 받아뒀다. "이미 불러온 범위 안"이라고 넘기면
+  // 확대해도 시·도 덩어리가 그대로 남는다(줌 10에서도 "경기도 7,746개"가 떠 있었다).
+  if (!force && !state.regionSummary && state.loadedBounds && boundsContain(state.loadedBounds, bounds)) {
     triggerHydration("현재 화면 실데이터", "live");
     return properties;
   }
@@ -338,14 +340,19 @@ function regionSummaryClusters(summary) {
     groupLabel: shortAdminLabel(cluster.label),
     adminLabel: shortAdminLabel(cluster.label),
     displayMode: "area",
-    regionOnly: true
+    regionOnly: true,
+    extent: cluster.extent
   })));
 }
 
 // 전국 화면에서는 수도권 세 덩어리와 세종·대전이 한 점에 몰려 라벨이 서로 덮는다
-// (실측: 세종↔대전 25px). 진짜 위치를 조금 희생하더라도 읽히는 쪽이 낫다 —
-// 겹친 것만 서로 밀어 라벨 폭만큼 띄운다. 마커 아래 점이 원래 자리를 가리킨다.
-const MARKER_MIN_GAP_PX = 78;
+// (실측: 세종↔대전 25px). 겹친 것만 서로 밀어 띄운다.
+//
+// 단, 미는 데는 한계를 둔다. 처음엔 무조건 78px을 벌리게 했더니 최대 축소에서 전국이
+// 화면 200px 안에 들어가는 바람에 서울 마커가 북한, 전북이 서해까지 밀려났다.
+// 밀어낸 뒤에는 반드시 자기 시·도 범위 안으로 되돌린다 — 위치가 틀린 지도는
+// 겹친 라벨보다 나쁘다. 좁아서 다 못 띄우면 덜 띄우고 만다.
+const MARKER_MIN_GAP_PX = 64;
 
 function spreadOverlappingMarkers(clusters) {
   const projection = state.map?.getProjection?.();
@@ -381,8 +388,17 @@ function spreadOverlappingMarkers(clusters) {
 
   return clusters.map((cluster, index) => {
     const coord = projection.fromOffsetToCoord(new naver.maps.Point(points[index].x, points[index].y));
-    return { ...cluster, lat: coord.lat(), lng: coord.lng() };
+    return { ...cluster, ...clampToExtent(cluster.extent, coord.lat(), coord.lng()) };
   });
+}
+
+// 밀어낸 마커를 자기 구역 안으로 되돌린다. 범위를 모르면 그대로 둔다.
+function clampToExtent(extent, lat, lng) {
+  if (!extent) return { lat, lng };
+  return {
+    lat: Math.min(Math.max(lat, extent.swLat), extent.neLat),
+    lng: Math.min(Math.max(lng, extent.swLng), extent.neLng)
+  };
 }
 
 async function fetchViewportSource(bounds, source, options = {}) {
