@@ -328,7 +328,7 @@ async function loadRegionSummary(bounds) {
 // 집계 응답을 지도 마커가 아는 모양으로 바꾼다. 개별 물건이 없으므로 items는 비어 있고,
 // 클릭하면 물건을 여는 대신 그 지역으로 확대한다(handleMarkerClick에서 처리).
 function regionSummaryClusters(summary) {
-  return summary.clusters.map((cluster) => ({
+  return spreadOverlappingMarkers(summary.clusters.map((cluster) => ({
     key: cluster.key,
     count: cluster.count,
     items: [],
@@ -339,7 +339,50 @@ function regionSummaryClusters(summary) {
     adminLabel: shortAdminLabel(cluster.label),
     displayMode: "area",
     regionOnly: true
-  }));
+  })));
+}
+
+// 전국 화면에서는 수도권 세 덩어리와 세종·대전이 한 점에 몰려 라벨이 서로 덮는다
+// (실측: 세종↔대전 25px). 진짜 위치를 조금 희생하더라도 읽히는 쪽이 낫다 —
+// 겹친 것만 서로 밀어 라벨 폭만큼 띄운다. 마커 아래 점이 원래 자리를 가리킨다.
+const MARKER_MIN_GAP_PX = 78;
+
+function spreadOverlappingMarkers(clusters) {
+  const projection = state.map?.getProjection?.();
+  if (!projection || clusters.length < 2) return clusters;
+
+  const points = clusters.map((cluster) => {
+    const offset = projection.fromCoordToOffset(new naver.maps.LatLng(cluster.lat, cluster.lng));
+    return { x: offset.x, y: offset.y };
+  });
+
+  // 한 번 밀면 다른 것과 겹칠 수 있어 몇 번 반복한다. 더 밀 게 없으면 바로 끝낸다.
+  for (let pass = 0; pass < 6; pass += 1) {
+    let moved = false;
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = i + 1; j < points.length; j += 1) {
+        const dx = points[j].x - points[i].x;
+        const dy = points[j].y - points[i].y;
+        const distance = Math.hypot(dx, dy) || 0.001;
+        if (distance >= MARKER_MIN_GAP_PX) continue;
+
+        const push = (MARKER_MIN_GAP_PX - distance) / 2;
+        const unitX = dx / distance;
+        const unitY = dy / distance;
+        points[i].x -= unitX * push;
+        points[i].y -= unitY * push;
+        points[j].x += unitX * push;
+        points[j].y += unitY * push;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  return clusters.map((cluster, index) => {
+    const coord = projection.fromOffsetToCoord(new naver.maps.Point(points[index].x, points[index].y));
+    return { ...cluster, lat: coord.lat(), lng: coord.lng() };
+  });
 }
 
 async function fetchViewportSource(bounds, source, options = {}) {
