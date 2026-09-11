@@ -12,6 +12,8 @@ const HYDRATION_MAX = 160;
 const LIST_RENDER_LIMIT = 50;
 const LIST_RENDER_STEP = 100;
 const VIEWPORT_FETCH_MARGIN = 0.35;
+// 집계 화면에서 지역을 눌렀을 때 들어갈 줌. 여기서부터는 물건을 하나씩 받아온다.
+const REGION_ZOOM_IN_LEVEL = 10;
 const NAVER_MAP_SCRIPT_BASE = "https://oapi.map.naver.com/openapi/v3/maps.js";
 const NAVER_MAP_MAX_RETRIES = 4;
 const PROVINCE_CENTERS = {
@@ -75,6 +77,8 @@ const state = {
   globalSearchIds: new Set(),
   viewportRequestId: 0,
   viewportLoading: false,
+  // 전국까지 줄였을 때 시·도별 개수만 받아온 결과. 이때는 개별 물건이 없다.
+  regionSummary: null,
   viewportQueued: false,
   suppressNextIdleFetch: false,
   hydrating: false,
@@ -221,6 +225,24 @@ async function loadViewportProperties({ force = false } = {}) {
   setDataStatus("현재 지도 화면 경공매 조회 중", "live");
 
   try {
+    // 전국까지 줄이면 물건을 하나씩 받아오는 게 불가능하다. 3만 건이라 업스트림에서
+    // 받아오는 데만 26초가 걸려 죽었다. 그 줌에서는 어차피 시·도 덩어리로만 그리므로
+    // 서버에 개수만 물어본다. 서버가 "이 화면은 쪼개 봐야 한다"고 하면 아래로 내려간다.
+    const summary = await loadRegionSummary(fetchBounds);
+    if (requestId !== state.viewportRequestId) return [];
+    if (summary) {
+      state.regionSummary = summary;
+      properties = [];
+      state.loadedBounds = fetchBounds;
+      state.selectedId = null;
+      state.sidebarMode = "recommendations";
+      populateFilters();
+      render();
+      setDataStatus(`${summary.total.toLocaleString("ko-KR")}개 · 시·도별 집계`, "live");
+      return [];
+    }
+    state.regionSummary = null;
+
     const payload = await fetchViewportSource(fetchBounds, "court", { exactGeocode: "0" });
     if (requestId !== state.viewportRequestId) return [];
 
@@ -276,6 +298,48 @@ function preserveGlobalSearchProperties(items, previousItems) {
   if (!state.globalSearchIds.size) return items;
   const searchResults = previousItems.filter((item) => state.globalSearchIds.has(item.id));
   return uniquePropertyItems([...searchResults, ...items]);
+}
+
+// 시·도별 개수만 받아온다. 서버가 needs_detail을 주면(시·군·구까지 나눠 봐야 하는 화면)
+// null을 돌려 호출부가 기존 경로로 가게 한다.
+async function loadRegionSummary(bounds) {
+  if (adminClusterLevel(state.map?.getZoom?.() ?? 0) !== "province") return null;
+
+  const params = new URLSearchParams({
+    swLat: String(bounds.swLat),
+    swLng: String(bounds.swLng),
+    neLat: String(bounds.neLat),
+    neLng: String(bounds.neLng),
+    sources: "court"
+  });
+
+  try {
+    const response = await fetch(`/api/viewport-clusters?${params.toString()}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload.ok || payload.mode !== "clusters") return null;
+    return { total: Number(payload.total) || 0, clusters: payload.clusters || [] };
+  } catch (error) {
+    console.warn("Failed to load region summary", error);
+    return null;
+  }
+}
+
+// 집계 응답을 지도 마커가 아는 모양으로 바꾼다. 개별 물건이 없으므로 items는 비어 있고,
+// 클릭하면 물건을 여는 대신 그 지역으로 확대한다(handleMarkerClick에서 처리).
+function regionSummaryClusters(summary) {
+  return summary.clusters.map((cluster) => ({
+    key: cluster.key,
+    count: cluster.count,
+    items: [],
+    lat: cluster.lat,
+    lng: cluster.lng,
+    title: `${cluster.label} ${cluster.count.toLocaleString("ko-KR")}개 물건`,
+    groupLabel: shortAdminLabel(cluster.label),
+    adminLabel: shortAdminLabel(cluster.label),
+    displayMode: "area",
+    regionOnly: true
+  }));
 }
 
 async function fetchViewportSource(bounds, source, options = {}) {
@@ -753,6 +817,19 @@ function renderCategoryFilters(scopeItems) {
   const taxonomy = window.GGONGJI_CATEGORIES;
   if (!taxonomy || !dom.categoryGroupFilter) return;
 
+  // 집계 모드에서는 개별 물건을 안 받아왔으므로 종별 개수를 셀 수 없다.
+  // 그대로 두면 화면에는 "32,089개"인데 필터에는 "전체 (0)"이 붙어 서로 어긋난다.
+  // 개수를 떼고 칸을 잠근다 — 지금 줌에서는 어차피 걸러줄 물건이 손에 없다.
+  setFilterControlsEnabled(!state.regionSummary);
+  if (state.regionSummary) {
+    dom.categoryGroupFilter.innerHTML = option("all", "전체");
+    dom.categoryGroupFilter.value = "all";
+    dom.categorySubField.hidden = true;
+    dom.saleFormFilter.innerHTML = option("all", "전체");
+    dom.saleFormFilter.value = "all";
+    return;
+  }
+
   const subCounts = new Map();
   const formCounts = new Map();
   scopeItems.forEach((item) => {
@@ -790,6 +867,15 @@ function renderCategoryFilters(scopeItems) {
     )
   ].join("");
   dom.saleFormFilter.value = state.filters.saleForm;
+}
+
+// 잠긴 칸은 눌러도 아무 일이 없어야 한다. 고를 수 있는 것처럼 보이면 계속 눌러보게 된다.
+function setFilterControlsEnabled(enabled) {
+  [dom.regionFilter, dom.riskFilter, dom.categoryGroupFilter, dom.categorySubFilter, dom.saleFormFilter].forEach(
+    (control) => {
+      if (control) control.disabled = !enabled;
+    }
+  );
 }
 
 function countLabel(label, count) {
@@ -1247,6 +1333,14 @@ function sortProperties(items) {
 }
 
 function renderMetrics(items) {
+  // 집계 모드에서는 개수만 안다. 모르는 칸을 0으로 찍으면 "없다"로 읽히므로 줄표로 둔다.
+  if (state.regionSummary) {
+    dom.metricCount.textContent = state.regionSummary.total.toLocaleString("ko-KR");
+    dom.metricAvgDiscount.textContent = "—";
+    dom.metricTopScore.textContent = "—";
+    return;
+  }
+
   // 화면 물건 수 · 공시가 비교 가능 수 · 7일 내 입찰 임박 수 — 실제 행동에 쓰는 카운트만 보여준다.
   const comparableCount = items.filter((item) => item.officialComparable).length;
   const imminentCount = items.filter((item) => {
@@ -1277,6 +1371,11 @@ function formatDday(value) {
 
 function renderRecommendationPanel(items) {
   dom.list.innerHTML = "";
+
+  if (state.regionSummary) {
+    renderRegionSummaryPanel(state.regionSummary);
+    return;
+  }
 
   dom.list.insertAdjacentHTML(
     "beforeend",
@@ -1341,6 +1440,54 @@ function appendLoadMoreButton(container, totalCount) {
 
 // 우측 슬라이드 패널: 물건을 고르면 상세가 밀려 들어온다.
 // 목록은 좌측 하나로 충분해서, 예전의 "경공매 물건" 중복 리스트는 없앴다.
+// 집계 모드의 왼쪽 패널. 개수만 받아왔으므로 물건 목록을 만들 수 없다.
+// 빈 자리에 안내문만 띄우는 대신 어디에 물건이 많은지를 보여주고, 누르면 그리로 데려간다.
+function renderRegionSummaryPanel(summary) {
+  dom.list.insertAdjacentHTML(
+    "beforeend",
+    `<div class="list-panel-header">
+      <div>
+        <strong>지역별 물건 수</strong>
+        <span>지도를 확대하면 물건 목록이 나옵니다</span>
+      </div>
+    </div>`
+  );
+
+  if (!summary.clusters.length) {
+    dom.list.insertAdjacentHTML("beforeend", `<p class="address">표시할 경공매 물건이 없습니다.</p>`);
+    return;
+  }
+
+  const rows = summary.clusters
+    .map(
+      (cluster) => `
+      <button type="button" class="region-row" data-lat="${cluster.lat}" data-lng="${cluster.lng}">
+        <span>${escapeHtml(cluster.label)}</span>
+        <strong>${Number(cluster.count).toLocaleString("ko-KR")}개</strong>
+      </button>`
+    )
+    .join("");
+
+  dom.list.insertAdjacentHTML("beforeend", `<div class="region-list">${rows}</div>`);
+  dom.list.querySelectorAll(".region-row").forEach((row) => {
+    row.addEventListener("click", () => zoomToRegion(Number(row.dataset.lat), Number(row.dataset.lng)));
+  });
+}
+
+// 집계 화면에서는 물건을 받아두지 않았다. 지도만 옮기면 아무것도 안 뜨므로 직접 다시 부른다.
+function zoomToRegion(lat, lng) {
+  if (!state.map || !window.naver || !window.naver.maps) return;
+
+  state.isProgrammaticMove = true;
+  state.map.setCenter(new naver.maps.LatLng(lat, lng));
+  state.map.setZoom(Math.max(state.map.getZoom(), REGION_ZOOM_IN_LEVEL));
+  window.setTimeout(() => {
+    state.isProgrammaticMove = false;
+    state.loadedBounds = null;
+    loadViewportProperties({ force: true }).catch((error) => console.warn("Failed to load after region zoom", error));
+  }, 300);
+}
+
 function renderDetailPanel(enrichedItems) {
   const panel = dom.detail;
   const selected = state.selectedId
@@ -1831,6 +1978,7 @@ function renderNaverMarkers(items) {
 
 function makeClusters(items) {
   if (!state.map || !window.naver || !window.naver.maps) return [];
+  if (state.regionSummary) return regionSummaryClusters(state.regionSummary);
 
   const zoom = state.map.getZoom();
   const adminLevel = adminClusterLevel(zoom);
@@ -2151,6 +2299,12 @@ function limitDotMarkers(clusters, zoom) {
 }
 
 function handleMarkerClick(cluster) {
+  // 집계 마커에는 물건이 없다. 열 게 없으니 그 지역으로 확대만 한다.
+  if (cluster.regionOnly) {
+    zoomToRegion(cluster.lat, cluster.lng, 9);
+    return;
+  }
+
   if (cluster.count > 1 && state.map && cluster.displayMode !== "label") {
     state.isProgrammaticMove = true;
     state.map.setCenter(new naver.maps.LatLng(cluster.lat, cluster.lng));

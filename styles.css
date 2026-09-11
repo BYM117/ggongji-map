@@ -2902,3 +2902,43 @@ select:focus-visible {
   height: 7px;
   border-width: 1px;
 }
+
+/* 집계 모드(전국까지 축소했을 때)의 지역별 목록.
+   개별 물건을 못 받아온 화면이라 왼쪽 패널을 이걸로 채운다. */
+.region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.region-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.region-row:hover,
+.region-row:focus-visible {
+  background: var(--signal-soft);
+}
+
+.region-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.region-row strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
