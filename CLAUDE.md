@@ -85,7 +85,11 @@
 npm run dev          # dev-server.mjs, http://localhost:4173
 ```
 
-Claude Code에서는 `.claude/launch.json`의 `ggongji` 설정을 쓴다 (법원 API 스냅샷 모드).
+Claude Code에서는 `.claude/launch.json`의 설정을 쓴다. `ggongji`(4173)와 `ggongji-4174`(4174)가
+있고 **둘 다 법원 API에서 실데이터를 받는다.** 포트만 다르므로 두 세션이 각자 하나씩 띄우면 된다.
+
+스냅샷 모드(`COURT_AUCTION_USE_SNAPSHOT=1`)는 쓰지 않는다. 스냅샷 파일이 커밋 `e32fe0b`에서
+이미 지워져서, 켜면 법원 물건이 0건이 된다. 빨라 보이는 것은 받아올 게 없어서다.
 서버를 Bash로 직접 띄우지 말고 preview 도구를 쓴다.
 
 키는 `.env`에 있다. `.env.example` 참고. **키 값을 커밋하거나 대화에 출력하지 않는다.**
