@@ -39,10 +39,12 @@
 구체적으로 `grid-template-columns`의 남는 칸, `overflow: visible`, `height: auto`,
 `position: static`. 오버레이로 바꿀 때는 이 넷을 세트로 같이 고쳐야 한다.
 
-**주의:** `@media (max-width: 1040px)` 안쪽(약 1840~1863줄)에 `.app-shell` / `.sidebar` /
-`.detail-panel`의 `overflow: visible`이 아직 남아 있다. 파일 뒤쪽 모바일 블록이 같은
-미디어쿼리에서 `hidden` / `auto`로 덮고 있어 지금은 무해하지만, **뒤쪽 덮어쓰기를 지우면
-세 버그가 한꺼번에 되살아난다.** 정리한다면 앞쪽 죽은 선언을 지워야지 뒤쪽을 건드리면 안 된다.
+**정리 완료:** `@media (max-width: 1040px)`에 남아 있던 `.app-shell` / `.sidebar` /
+`.detail-panel`의 `overflow: visible` 세 줄은 지웠다(2026-09-12). 지우기 전에
+375 / 1000 / 1040px × 시트 3단계 × 상세 열림·닫힘 × body 클래스 없는 상태까지
+계산 속성 13종과 박스 좌표를 비교해 **차이 0**을 확인했다.
+파일 뒤쪽 모바일 블록의 `overflow: hidden` / `overflow-y: auto`가 진짜 값이다.
+**그쪽을 지우면 세 버그가 한꺼번에 되살아난다.**
 
 ## 2026-09-11 · 전국까지 줄이면 물건 대신 시·도별 개수만 받아온다
 
