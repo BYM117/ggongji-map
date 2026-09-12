@@ -1604,14 +1604,23 @@ function closeDetailPanel() {
   render();
 }
 
-// 클릭한 물건의 상세(사진·문서·사건 원문)를 크롤러 API에서 가져온다.
+// 클릭한 물건의 상세를 가져온다. 경매는 법원 크롤러, 공매는 온비드 OpenAPI로 간다.
+//
+// 두 쪽의 물건번호는 생김새부터 다르다(2024타경124807 vs 2021-02168-407). 예전에는 출처를
+// 보지 않고 무조건 법원에 물어서, 공매를 누를 때마다 400이 하나씩 나가고 사진·문서 칸이
+// 통째로 비었다. 여기서 갈라 보내지 않으면 그 상태로 되돌아간다.
 async function loadPropertyDetail(id) {
   if (!id) return;
+
+  // 이 함수는 id만 받는데 출처는 물건에 붙어 있다. 목록에서 한 번 찾아와야 판별할 수 있다.
+  const item = properties.find((property) => property.id === id);
+  const endpoint = sourceKind(item) === "onbid" ? "/api/onbid-detail" : "/api/court-auction-detail";
+
   state.detailLoadingId = id;
   render();
 
   try {
-    const response = await fetch(`/api/court-auction-detail?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+    const response = await fetch(`${endpoint}?id=${encodeURIComponent(id)}`, { cache: "no-store" });
     const payload = response.ok ? await response.json() : null;
     // 그 사이 다른 물건을 눌렀으면 늦게 온 응답은 버린다.
     if (state.selectedId !== id) return;
@@ -2697,7 +2706,7 @@ function renderPropertyDetail(item) {
         }
       </div>
     </section>
-    ${renderCourtDetailSections(detail, loading)}
+    ${sourceKind(item) === "onbid" ? renderOnbidDetailSections(detail, loading) : renderCourtDetailSections(detail, loading)}
     <div class="source-row">
       <span>데이터 출처</span>
       <strong>${escapeHtml(item.source)}</strong>
@@ -2709,6 +2718,8 @@ function renderPropertyDetail(item) {
 }
 
 // 현장 사진 — 상세의 첫인상이라 맨 위에 크게 놓는다.
+// 온비드는 줄에 쓸 썸네일(8KB)과 크게 볼 원본(1MB)의 주소가 달라서 두 벌을 받아 둔다.
+// 법원 쪽은 한 벌뿐이라 fullUrl이 없고, 그때는 그냥 url을 그대로 쓴다.
 function renderDetailPhotos(detail, loading) {
   if (loading && !detail) return `<div class="detail-photos skeleton" aria-hidden="true"></div>`;
   const photos = (detail && detail.photos) || [];
@@ -2719,12 +2730,189 @@ function renderDetailPhotos(detail, loading) {
       ${photos
         .map(
           (photo, index) => `
-        <button class="detail-photo" type="button" data-photo="${escapeHtml(photo.url)}" aria-label="${escapeHtml(photo.label || `사진 ${index + 1}`)} 크게 보기">
+        <button class="detail-photo" type="button" data-photo="${escapeHtml(photo.fullUrl || photo.url)}" aria-label="${escapeHtml(photo.label || `사진 ${index + 1}`)} 크게 보기">
           <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.label || "현장 사진")}" decoding="async" />
         </button>`
         )
         .join("")}
     </div>`;
+}
+
+// 온비드 원문에서 온 것들: 입찰 일정 · 면적 · 임대차 · 등기권리 · 감정평가서 · 현황
+//
+// 법원 쪽과 섹션 구성이 다르다. 공매는 사건기록이 없는 대신 회차별 체감 일정과
+// 전입세대 조사서가 있다. 클래스는 법원 섹션이 쓰던 것을 그대로 쓴다 —
+// 여기서만 쓰는 새 CSS를 만들면 styles.css가 또 갈라진다.
+function renderOnbidDetailSections(detail, loading) {
+  if (loading && !detail) {
+    return `<section class="detail-section"><p class="address">상세 정보를 불러오는 중입니다…</p></section>`;
+  }
+  if (!detail) return "";
+
+  const sections = [];
+
+  // 지분 매각은 단독으로 쓰지도 팔지도 못한다. 면적 줄에 묻어가면 놓치므로 맨 위로 뺀다.
+  const shares = (detail.areas || []).filter((area) => area.note && area.note.includes("지분"));
+  if (shares.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>지분 매각 주의</h3>
+        <p class="address">전체가 아닌 지분만 매각됩니다. ${shares.map((area) => escapeHtml(`${area.kind} ${area.note}`)).join(" / ")}</p>
+      </section>`);
+  }
+
+  sections.push(renderOnbidRounds(detail.rounds, detail.appraisalAmount));
+
+  const areas = detail.areas || [];
+  if (areas.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>면적</h3>
+        <div class="case-list">
+          ${areas.map((area) => `
+            <div class="case-row">
+              <span>${escapeHtml(area.kind || "면적")}</span>
+              <strong>${escapeHtml(area.size)}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  // 대항력 있는 임차인이 있으면 낙찰자가 보증금을 떠안는다. 공매에서 가장 비싼 실수다.
+  const tenants = detail.tenants || [];
+  if (tenants.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>임대차 · 전입세대</h3>
+        <div class="case-list">
+          ${tenants.map((tenant) => `
+            <div class="case-row">
+              <span>${escapeHtml([tenant.kind, tenant.name].filter(Boolean).join(" "))}</span>
+              <strong>${escapeHtml(onbidTenantSummary(tenant))}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  const rights = detail.rights || [];
+  if (rights.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>등기 권리</h3>
+        <div class="case-list">
+          ${rights.map((right) => `
+            <div class="case-row">
+              <span>${escapeHtml([right.kind, right.holder].filter(Boolean).join(" "))}</span>
+              <strong>${right.amount ? formatWon(right.amount) : escapeHtml(formatOnbidDate(right.date) || "—")}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  const appraisals = (detail.appraisals || []).filter((item) => item.url || item.org);
+  if (appraisals.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>감정평가서</h3>
+        <div class="doc-list">
+          ${appraisals.map((item) => `
+            <div class="doc-row">
+              <div>
+                <strong>${escapeHtml(item.org || "감정평가")}</strong>
+                <p class="doc-preview">${escapeHtml([formatOnbidDate(item.date), item.amount ? formatWon(item.amount) : ""].filter(Boolean).join(" · "))}</p>
+              </div>
+              ${item.url ? `<a class="doc-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">원문</a>` : ""}
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  // 온비드가 현장조사로 적어 온 문장들. 공부상 용도와 실제 용도가 다른 경우가 여기서만 드러난다.
+  for (const note of detail.notes || []) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>${escapeHtml(note.title)}</h3>
+        <p class="address">${escapeHtml(note.body)}</p>
+      </section>`);
+  }
+
+  const org = detail.org || {};
+  const orgRows = [
+    ["도로명주소", (detail.address || {}).road],
+    ["재산 구분", [org.propertyDiv, org.disposal].filter(Boolean).join(" · ")],
+    ["입찰 방식", org.bidType],
+    ["집행 기관", org.agency],
+    ["위임 기관", org.requester],
+    ["최초 공고일", formatOnbidDate(detail.firstNoticeDate)],
+    ["배분요구 종기", formatOnbidDate(detail.distributionDeadline)]
+  ].filter(([, value]) => value);
+
+  if (orgRows.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>공고 정보</h3>
+        <div class="case-list">
+          ${orgRows.map(([label, value]) => `
+            <div class="case-row">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(value)}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  return sections.filter(Boolean).join("");
+}
+
+// 회차별 최저가 체감표. 공매는 유찰될 때마다 감정가의 10%씩 떨어지도록 일정이 미리 짜여 있어서,
+// "지금 몇 %인지"와 "언제까지 기다리면 얼마인지"를 한 번에 보여줄 수 있다. 법원 경매에는 없는 정보다.
+function renderOnbidRounds(rounds, appraisalAmount) {
+  if (!rounds || !rounds.length) return "";
+
+  // 진행 중인 회차가 있으면 그것이 기준, 없으면 다음에 열릴 회차가 기준이다.
+  const current = rounds.find((round) => round.phase === "open") || rounds.find((round) => round.phase === "upcoming");
+
+  return `
+    <section class="detail-section">
+      <h3>입찰 일정 (${rounds.length}회차)</h3>
+      <div class="deal-list">
+        ${rounds.map((round) => {
+          const rate = appraisalAmount > 0 ? Math.round((round.price / appraisalAmount) * 100) : null;
+          const isCurrent = current && round.start === current.start;
+          return `
+          <div class="deal-row">
+            <div>
+              <strong>${isCurrent ? "▶ " : ""}${escapeHtml(round.seq)}회차${round.phase === "past" ? " (종료)" : ""}</strong><br />
+              <span class="case-no">${escapeHtml(formatOnbidDate(round.start))} ~ ${escapeHtml(formatOnbidDate(round.end))}</span>
+            </div>
+            <strong>${formatWon(round.price)}${rate !== null ? `<br /><span class="case-no">감정가 ${rate}%</span>` : ""}</strong>
+          </div>`;
+        }).join("")}
+      </div>
+    </section>`;
+}
+
+function onbidTenantSummary(tenant) {
+  const parts = [];
+  if (tenant.deposit) parts.push(`보증금 ${formatWon(tenant.deposit)}`);
+  if (tenant.monthly) parts.push(`월 ${formatWon(tenant.monthly)}`);
+  if (tenant.moveInDate) parts.push(`전입 ${formatOnbidDate(tenant.moveInDate)}`);
+  if (tenant.confirmDate) parts.push(`확정 ${formatOnbidDate(tenant.confirmDate)}`);
+  // 조사는 됐는데 날짜도 금액도 안 적혀 오는 줄이 흔하다. 빈칸으로 두면 조사 자체가
+  // 없었던 것처럼 보이므로 구분해서 적는다.
+  return parts.join(" · ") || "내용 없음";
+}
+
+// 온비드 날짜는 "20260902", "202701041400", "2026/10/12" 세 가지로 섞여 온다.
+// 기존 formatDate는 Date가 파싱할 수 있는 값만 받아서 이것들을 그대로 넣으면 Invalid Date가 된다.
+function formatOnbidDate(value) {
+  const digits = String(value ?? "").replace(/[^0-9]/g, "");
+  if (digits.length < 8) return "";
+  const month = Number(digits.slice(4, 6));
+  const day = Number(digits.slice(6, 8));
+  if (!month || !day) return "";
+  const time = digits.length >= 12 ? ` ${digits.slice(8, 10)}:${digits.slice(10, 12)}` : "";
+  return `${month}월 ${day}일${time}`;
 }
 
 // 법원 원문에서 온 것들: 사건 정보 · 문서 · 지분 · 위험 플래그
