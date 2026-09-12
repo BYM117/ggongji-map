@@ -725,6 +725,9 @@ function refinedCategory(item, source) {
   return { categorySub: sub, categoryGroup: taxonomy.groupIdOf(sub), categoryConfident: true };
 }
 
+// 한 번에 물어볼 동·종별 조합 수. 서버도 같은 값까지만 받는다.
+const SEOUL_PICKS_PER_REQUEST = 50;
+
 async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
   const candidates = targetItems
     .map((item) => ({ item, addressParts: parseSeoulAddress(item.address) }))
@@ -734,41 +737,59 @@ async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
 
   setDataStatus(`${baseLabel} · 실거래가 조회 중`, tone);
 
-  // 요청에 담기는 건 "구·동·물건종류" 세 개뿐이라, 같은 단지 물건 여러 개가 완전히
-  // 똑같은 질문을 만든다. 물건마다 부르면 화면 하나에 수십 번이 중복으로 나갔다.
-  // (실측: 물건 124개 → 요청 124번, 그중 진짜 다른 질문은 62개)
-  // 조합별로 한 번만 부르고, 받아온 결과를 그 조합의 물건들에 나눠 붙인다.
-  const groups = new Map();
+  // 이 API는 구까지만 서버에서 거르고 동·종별은 받아온 목록에서 고른다. 그래서 동마다
+  // 따로 부르면 서버는 같은 구 장부를 반복해서 꺼낼 뿐인데 왕복만 그만큼 늘어난다.
+  // (실측: 화면 물건 538개 → 구는 11개인데 동·종별 조합이 32개라 32번 왕복했다)
+  // 구 단위로 한 번만 부르고, 필요한 동·종별을 picks로 함께 보내 한 번에 받아온다.
+  const districts = new Map();
   for (const { item, addressParts } of candidates) {
-    const key = `${addressParts.district}|${addressParts.dong}|${item.type}`;
-    const group = groups.get(key) || { addressParts, type: item.type, items: [] };
-    group.items.push(item);
-    groups.set(key, group);
+    const pickKey = `${addressParts.dong}|${item.type}`;
+    const entry = districts.get(addressParts.district) || { district: addressParts.district, picks: new Map() };
+    const items = entry.picks.get(pickKey) || [];
+    items.push(item);
+    entry.picks.set(pickKey, items);
+    districts.set(addressParts.district, entry);
   }
 
-  const results = await mapWithConcurrency([...groups.values()], 6, async (group) => {
+  // 한 구에 조합이 아주 많으면 주소가 길어진다. 나눠 보내되 대부분은 한 번에 끝난다.
+  const requests = [];
+  for (const entry of districts.values()) {
+    const keys = [...entry.picks.keys()];
+    for (let index = 0; index < keys.length; index += SEOUL_PICKS_PER_REQUEST) {
+      requests.push({ entry, keys: keys.slice(index, index + SEOUL_PICKS_PER_REQUEST) });
+    }
+  }
+
+  const results = await mapWithConcurrency(requests, 6, async ({ entry, keys }) => {
       try {
         const params = new URLSearchParams({
-          district: group.addressParts.district,
-          dong: group.addressParts.dong,
-          type: group.type,
+          district: entry.district,
+          picks: keys.join(","),
           limit: "3"
         });
         const response = await fetch(`/api/seoul-deals?${params.toString()}`, { cache: "no-store" });
         if (!response.ok) return [];
 
         const payload = await response.json();
-        if (!payload.ok || !payload.deals?.length) return [];
+        if (!payload.ok || !payload.results) return [];
 
-        return group.items.map((item) => ({
-          ...item,
-          nearbyDeals: payload.deals,
-          marketDealSource: payload.source,
-          marketDealScope: payload.scope,
-          checks: uniqueValues([...(item.checks || []), "서울 실거래가"])
-        }));
+        const updated = [];
+        for (const key of keys) {
+          const result = payload.results[key];
+          if (!result || !result.deals?.length) continue;
+          for (const item of entry.picks.get(key) || []) {
+            updated.push({
+              ...item,
+              nearbyDeals: result.deals,
+              marketDealSource: payload.source,
+              marketDealScope: result.scope,
+              checks: uniqueValues([...(item.checks || []), "서울 실거래가"])
+            });
+          }
+        }
+        return updated;
       } catch (error) {
-        console.warn("Failed to load Seoul deals", group.addressParts, error);
+        console.warn("Failed to load Seoul deals", entry.district, error);
         return [];
       }
     });
