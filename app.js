@@ -2784,26 +2784,34 @@ function renderOnbidDetailSections(detail, loading) {
     sections.push(`
       <section class="detail-section">
         <h3>임대차 · 전입세대</h3>
-        <div class="case-list">
+        <div class="deal-list">
           ${tenants.map((tenant) => `
-            <div class="case-row">
-              <span>${escapeHtml([tenant.kind, tenant.name].filter(Boolean).join(" "))}</span>
+            <div class="deal-row">
+              <div>
+                <strong>${escapeHtml(tenant.kind || "관계인")}</strong><br />
+                <span class="case-no">${escapeHtml(tenant.name || "")}</span>
+              </div>
               <strong>${escapeHtml(onbidTenantSummary(tenant))}</strong>
             </div>`).join("")}
         </div>
       </section>`);
   }
 
+  // 등기일은 권리의 순위를 정하는 값이라 금액이 있다고 가려서는 안 된다. 둘 다 보이는
+  // 두 줄짜리 행(deal-row)을 쓴다. 한 줄짜리 case-row에 넣으면 금액이 날짜를 밀어낸다.
   const rights = detail.rights || [];
   if (rights.length) {
     sections.push(`
       <section class="detail-section">
         <h3>등기 권리</h3>
-        <div class="case-list">
+        <div class="deal-list">
           ${rights.map((right) => `
-            <div class="case-row">
-              <span>${escapeHtml([right.kind, right.holder].filter(Boolean).join(" "))}</span>
-              <strong>${right.amount ? formatWon(right.amount) : escapeHtml(formatOnbidDate(right.date) || "—")}</strong>
+            <div class="deal-row">
+              <div>
+                <strong>${escapeHtml(right.kind || "권리")}</strong><br />
+                <span class="case-no">${escapeHtml([right.holder, formatOnbidDate(right.date, "always")].filter(Boolean).join(" · "))}</span>
+              </div>
+              <strong>${right.amount ? formatWon(right.amount) : "—"}</strong>
             </div>`).join("")}
         </div>
       </section>`);
@@ -2896,8 +2904,8 @@ function onbidTenantSummary(tenant) {
   const parts = [];
   if (tenant.deposit) parts.push(`보증금 ${formatWon(tenant.deposit)}`);
   if (tenant.monthly) parts.push(`월 ${formatWon(tenant.monthly)}`);
-  if (tenant.moveInDate) parts.push(`전입 ${formatOnbidDate(tenant.moveInDate)}`);
-  if (tenant.confirmDate) parts.push(`확정 ${formatOnbidDate(tenant.confirmDate)}`);
+  if (tenant.moveInDate) parts.push(`전입 ${formatOnbidDate(tenant.moveInDate, "always")}`);
+  if (tenant.confirmDate) parts.push(`확정 ${formatOnbidDate(tenant.confirmDate, "always")}`);
   // 조사는 됐는데 날짜도 금액도 안 적혀 오는 줄이 흔하다. 빈칸으로 두면 조사 자체가
   // 없었던 것처럼 보이므로 구분해서 적는다.
   return parts.join(" · ") || "내용 없음";
@@ -2905,14 +2913,20 @@ function onbidTenantSummary(tenant) {
 
 // 온비드 날짜는 "20260902", "202701041400", "2026/10/12" 세 가지로 섞여 온다.
 // 기존 formatDate는 Date가 파싱할 수 있는 값만 받아서 이것들을 그대로 넣으면 Invalid Date가 된다.
-function formatOnbidDate(value) {
+//
+// 연도 규칙이 자리마다 다르다. 등기·전입은 2021년 압류인지 올해 압류인지가 곧 권리 순위라
+// 연도를 항상 붙이고("always"), 입찰 일정처럼 대부분 올해인 자리는 해가 넘어갈 때만 붙인다.
+// 회차가 이듬해 1월로 넘어가는 물건이 실제로 있어서, 연도를 통째로 빼면 지난 회차처럼 보인다.
+function formatOnbidDate(value, yearMode = "auto") {
   const digits = String(value ?? "").replace(/[^0-9]/g, "");
   if (digits.length < 8) return "";
+  const year = Number(digits.slice(0, 4));
   const month = Number(digits.slice(4, 6));
   const day = Number(digits.slice(6, 8));
   if (!month || !day) return "";
   const time = digits.length >= 12 ? ` ${digits.slice(8, 10)}:${digits.slice(10, 12)}` : "";
-  return `${month}월 ${day}일${time}`;
+  const showYear = yearMode === "always" || year !== new Date().getFullYear();
+  return `${showYear ? `${year}년 ` : ""}${month}월 ${day}일${time}`;
 }
 
 // 법원 원문에서 온 것들: 사건 정보 · 문서 · 지분 · 위험 플래그
