@@ -12,6 +12,7 @@ import { fetchOfficetelPrice } from "./lib/officetel.mjs";
 import { fetchCourtAuctionDetail, proxyCourtAuctionAsset } from "./lib/court-detail.mjs";
 import { fetchSeoulDeals } from "./lib/seoul.mjs";
 import { fetchOnbid, fetchOnbidProperties, fetchOnbidViewportProperties, onbidEndpoint } from "./lib/onbid.mjs";
+import { fetchOnbidDetail, proxyOnbidAsset } from "./lib/onbid-detail.mjs";
 import {
   fetchCourtAuctionClusters,
   fetchCourtAuctionProperties,
@@ -165,6 +166,17 @@ async function handleApi(url, response) {
     if (url.pathname === "/api/court-auction-detail") {
       const payload = await fetchCourtAuctionDetail(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/onbid-detail") {
+      const payload = await fetchOnbidDetail(url.searchParams);
+      sendJson(response, payload.ok ? 200 : 400, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/onbid-asset") {
+      await proxyOnbidAsset(url.searchParams, response);
       return;
     }
 
