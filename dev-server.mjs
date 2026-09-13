@@ -33,9 +33,41 @@ const contentTypes = {
   ".md": "text/markdown; charset=utf-8"
 };
 
-export async function handleApiRequest(request, response) {
+// request.url 과 Host 헤더는 둘 다 바깥에서 온 문자열이라 URL 로 읽히지 않는 값이 온다.
+// new URL 이 던지는 것을 여기서 흡수하지 않으면, 호출부가 async 라 그 예외가
+// unhandled rejection 이 되고 Node 기본 설정이 프로세스를 종료한다.
+function parseRequestUrl(request) {
   const requestHost = request.headers.host || `${host}:${port}`;
-  const url = new URL(request.url || "/", `http://${requestHost}`);
+  try {
+    return new URL(request.url || "/", `http://${requestHost}`);
+  } catch {
+    return null;
+  }
+}
+
+// 읽을 수 없는 퍼센트 인코딩이면 null. 던지지 않는 것이 이 함수의 존재 이유다.
+function safeDecodePath(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+// 응답을 이미 보낸 뒤에 또 쓰면 그 자체가 예외가 된다. 마지막 방어선에서만 쓴다.
+function endWithStatus(response, status, message) {
+  if (!response.headersSent) {
+    response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  }
+  response.end(message);
+}
+
+export async function handleApiRequest(request, response) {
+  const url = parseRequestUrl(request);
+  if (!url) {
+    sendJson(response, 400, { ok: false, error: "bad_request_url" });
+    return;
+  }
 
   if (url.pathname.startsWith("/api/")) {
     await handleApi(url, response);
@@ -46,19 +78,37 @@ export async function handleApiRequest(request, response) {
 }
 
 const server = createServer(async (request, response) => {
-  const requestHost = request.headers.host || `${host}:${port}`;
-  const url = new URL(request.url || "/", `http://${requestHost}`);
+  // 이 핸들러가 async 이므로 밖으로 나간 예외는 아무도 못 잡는다.
+  // 실측: GET /%E0%A4%A 한 번에 dev-server 프로세스가 exit 1 로 죽었다.
+  try {
+    const url = parseRequestUrl(request);
+    if (!url) {
+      endWithStatus(response, 400, "Bad request");
+      return;
+    }
 
-  if (url.pathname.startsWith("/api/")) {
-    await handleApi(url, response);
-    return;
+    if (url.pathname.startsWith("/api/")) {
+      await handleApi(url, response);
+      return;
+    }
+
+    await serveStaticFile(url, response);
+  } catch (error) {
+    console.error("request failed", request.url, error);
+    endWithStatus(response, 500, "Server error");
   }
-
-  await serveStaticFile(url, response);
 });
 
 async function serveStaticFile(url, response) {
-  const requestedPath = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+  // 퍼센트 인코딩이 깨진 경로("/%E0%A4%A")는 decodeURIComponent 가 URIError 를 던진다.
+  // 위 try/catch 가 받아주긴 하지만, 이건 서버 잘못이 아니라 요청이 잘못된 것이라 400 으로 답한다.
+  const decodedPath = safeDecodePath(url.pathname.slice(1));
+  if (decodedPath === null) {
+    endWithStatus(response, 400, "Bad request");
+    return;
+  }
+
+  const requestedPath = url.pathname === "/" ? "index.html" : decodedPath;
   const filePath = normalize(join(root, requestedPath));
   const relativePath = relative(root, filePath);
 
