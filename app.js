@@ -71,6 +71,8 @@ const state = {
   hasUserMovedMap: false,
   isProgrammaticMove: false,
   mapBootTimer: null,
+  mapWatchdogTimer: null,
+  mapAliveStreak: 0,
   viewportTimer: null,
   searchTimer: null,
   searchRequestId: 0,
@@ -129,6 +131,7 @@ function init() {
   setupBottomSheet();
   render();
   reloadNaverMapScript();
+  startMapWatchdog();
   hydrateExternalProperties();
 }
 
@@ -1868,6 +1871,13 @@ function resetNaverMapState() {
 }
 
 function scheduleNaverMapRetry() {
+  // 재시도를 더 못 하더라도 지도 자리를 빈 칸으로 두지는 않는다.
+  // 여기로 오는 모든 경로는 "지금 지도가 없다"는 뜻이므로, 대체 지도가 보이는지 확인한다.
+  if (!state.map) {
+    dom.naverMap.hidden = true;
+    dom.fallbackMap.hidden = false;
+  }
+
   if (state.naverRetryCount >= NAVER_MAP_MAX_RETRIES || state.naverRetryTimer) return;
 
   const delay = 1200 * (state.naverRetryCount + 1);
@@ -1929,40 +1939,80 @@ async function reloadNaverMapScript() {
 function initNaverMap() {
   if (state.map) return;
 
-  state.naverLoaded = true;
-  dom.fallbackMap.hidden = true;
-  dom.naverMap.hidden = false;
   const selected = properties.map(enrichProperty).find((item) => item.id === state.selectedId) || properties[0] || {
     lat: 37.5665,
     lng: 126.9780
   };
-  state.map = new naver.maps.Map("naverMap", {
-    center: new naver.maps.LatLng(selected.lat, selected.lng),
-    zoom: 14,
-    mapTypeId: naver.maps.MapTypeId.NORMAL,
-    mapTypeControl: true,
-    scaleControl: true,
-    logoControl: true
-  });
-  naver.maps.Event.addListener(state.map, "dragstart", markUserMapInteraction);
-  naver.maps.Event.addListener(state.map, "zoom_changed", markUserMapInteraction);
-  naver.maps.Event.addListener(state.map, "idle", handleMapIdle);
+
+  // 지도 칸은 보여야 크기가 잡히므로 만들기 전에 열 수밖에 없다. 문제는 만들다 실패했을 때다.
+  // 예전에는 되돌리지 않아서 대체 지도는 숨겨진 채 빈 칸만 남았다.
+  // 실측(인증이 막힌 포트): 네이버 스크립트 안쪽이 예외를 던지고
+  // (Uncaught TypeError ... reading 'capitalize') 재시도 예약도 없이
+  // 1024x768 빈 사각형으로 굳었다. 목록은 멀쩡한데 지도 자리만 죽는다.
+  state.naverLoaded = true;
+  dom.fallbackMap.hidden = true;
+  dom.naverMap.hidden = false;
+
+  try {
+    state.map = new naver.maps.Map("naverMap", {
+      center: new naver.maps.LatLng(selected.lat, selected.lng),
+      zoom: 14,
+      mapTypeId: naver.maps.MapTypeId.NORMAL,
+      mapTypeControl: true,
+      scaleControl: true,
+      logoControl: true
+    });
+    naver.maps.Event.addListener(state.map, "dragstart", markUserMapInteraction);
+    naver.maps.Event.addListener(state.map, "zoom_changed", markUserMapInteraction);
+    naver.maps.Event.addListener(state.map, "idle", handleMapIdle);
+  } catch (error) {
+    // 여기서 되돌리지 않으면 지도도 대체 지도도 없는 화면이 된다.
+    console.warn("Failed to create Naver map", error);
+    resetNaverMapState();
+    scheduleNaverMapRetry();
+    return;
+  }
+
   forceNaverRepaint(selected);
   render();
-  window.setTimeout(validateNaverMapSession, 2800);
   window.setTimeout(() => {
     loadViewportProperties({ force: true }).catch((error) => console.warn("Failed to load initial viewport", error));
   }, 500);
 }
 
+// 지도가 살아 있는지 주기적으로 본다. 예전에는 initNaverMap 뒤에 setTimeout 으로 한 번만
+// 확인했는데, 그 뒤에 네이버 스크립트가 조용히 사라지면 아무도 모른다.
+// 실측(인증이 막힌 포트): 지도도 대체 지도도 없는 1024x768 빈 칸으로 굳었고, 그때
+// state.map=null / naverRetryCount=0 / 예약된 재시도 없음이라 스스로 빠져나올 길이 없었다.
+// 어떤 경로로 그 상태에 들어갔는지와 무관하게 "지도가 없으면 대체 지도는 보인다"를 지킨다.
+function startMapWatchdog() {
+  if (state.mapWatchdogTimer) return;
+  state.mapWatchdogTimer = window.setInterval(validateNaverMapSession, 3000);
+}
+
 function validateNaverMapSession() {
-  if (!state.map) return;
-  if (window.naver?.maps) {
-    state.naverRetryCount = 0;
+  // 처음 불러오는 중이거나 재시도를 기다리는 중이면 아직 판단하지 않는다.
+  if (state.naverScriptLoading || state.mapBootTimer || state.naverRetryTimer) return;
+
+  if (state.map && window.naver?.maps) {
+    // 한 번 살아 있는 것만으로 재시도 횟수를 되돌리면, 떴다 죽었다를 반복하는 환경에서
+    // (등록 안 된 도메인 등) 네이버 스크립트를 영원히 다시 받는다.
+    // 두 번 연속 살아 있을 때만 "정상"으로 보고, 그래야 상한이 실제로 걸린다.
+    if (state.mapAliveStreak >= 1) state.naverRetryCount = 0;
+    state.mapAliveStreak += 1;
     return;
   }
+  state.mapAliveStreak = 0;
 
-  resetNaverMapState();
+  // 지도가 반쯤 만들어졌다가 죽은 경우엔 정리부터 한다(마커·폴리곤이 남는다).
+  if (state.map) {
+    resetNaverMapState();
+  } else if (dom.fallbackMap.hidden) {
+    // 지도는 없는데 지도 칸만 열려 있는 상태. 이게 빈 화면의 정체다.
+    dom.naverMap.hidden = true;
+    dom.fallbackMap.hidden = false;
+  }
+
   scheduleNaverMapRetry();
 }
 
