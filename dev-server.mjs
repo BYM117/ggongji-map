@@ -4,18 +4,15 @@ import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { exists, parseCsv } from "./lib/util.mjs";
 import { parseViewportBounds } from "./lib/geo.mjs";
-import { normalizeProperty } from "./lib/normalize.mjs";
 import { fetchGeocode, fetchHousingPrice, fetchLandPrice, fetchParcelBoundary } from "./lib/vworld.mjs";
 import { fetchOfficetelPrice } from "./lib/officetel.mjs";
 import { fetchCourtAuctionDetail, proxyCourtAuctionAsset } from "./lib/court-detail.mjs";
 import { fetchSeoulDeals } from "./lib/seoul.mjs";
-import { fetchOnbid, fetchOnbidProperties, fetchOnbidViewportProperties, onbidEndpoint } from "./lib/onbid.mjs";
+import { fetchOnbidViewportProperties } from "./lib/onbid.mjs";
 import { fetchOnbidDetail, proxyOnbidAsset } from "./lib/onbid-detail.mjs";
 import {
   fetchCourtAuctionClusters,
-  fetchCourtAuctionProperties,
   fetchCourtAuctionViewportProperties,
   searchCourtAuctionProperties
 } from "./lib/court.mjs";
@@ -165,12 +162,6 @@ async function handleApi(url, response) {
       return;
     }
 
-    if (url.pathname === "/api/properties") {
-      const payload = await readExternalProperties();
-      sendJson(response, 200, payload);
-      return;
-    }
-
     if (url.pathname === "/api/land-price") {
       const payload = await withUpstreamFallback("공시지가", () => fetchLandPrice(url.searchParams));
       sendJson(response, payload.ok ? 200 : payload.status || 400, payload);
@@ -207,12 +198,6 @@ async function handleApi(url, response) {
       return;
     }
 
-    if (url.pathname === "/api/onbid-properties") {
-      const payload = await fetchOnbidProperties(url.searchParams);
-      sendJson(response, payload.ok ? 200 : 400, payload);
-      return;
-    }
-
     if (url.pathname === "/api/court-auction-detail") {
       const payload = await fetchCourtAuctionDetail(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
@@ -235,12 +220,6 @@ async function handleApi(url, response) {
       return;
     }
 
-    if (url.pathname === "/api/court-auctions") {
-      const payload = await fetchCourtAuctionProperties(url.searchParams);
-      sendJson(response, payload.ok ? 200 : 400, payload);
-      return;
-    }
-
     if (url.pathname === "/api/search-properties") {
       const payload = await searchCourtAuctionProperties(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
@@ -260,12 +239,6 @@ async function handleApi(url, response) {
 
     if (url.pathname === "/api/viewport-properties") {
       const payload = await fetchViewportProperties(url.searchParams);
-      sendJson(response, payload.ok ? 200 : 400, payload);
-      return;
-    }
-
-    if (url.pathname === "/api/onbid") {
-      const payload = await fetchOnbid(url.searchParams);
       sendJson(response, payload.ok ? 200 : 400, payload);
       return;
     }
@@ -300,62 +273,6 @@ function sendJson(response, status, payload, cacheControl) {
     "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(payload, null, 2));
-}
-
-async function readExternalProperties() {
-  const sources = [];
-  const jsonProperties = await readPropertiesJson();
-  const onbidProperties = await readPropertiesCsv("data/onbid.csv", "온비드 CSV");
-  const courtProperties = await readPropertiesCsv("data/court-auction.csv", "대법원경매 CSV");
-  const liveCourtAuctions = await fetchCourtAuctionProperties(new URLSearchParams({ silent: "1", exactGeocode: "1" }));
-  const liveCourtAuctionProperties = liveCourtAuctions.ok ? liveCourtAuctions.properties : [];
-  const liveOnbid = await fetchOnbidProperties(new URLSearchParams({ silent: "1" }));
-  const liveOnbidProperties = liveOnbid.ok ? liveOnbid.properties : [];
-  const properties = [...jsonProperties, ...onbidProperties, ...courtProperties, ...liveCourtAuctionProperties, ...liveOnbidProperties]
-    .map(normalizeProperty)
-    .filter(Boolean);
-
-  if (jsonProperties.length) sources.push("data/properties.json");
-  if (onbidProperties.length) sources.push("data/onbid.csv");
-  if (courtProperties.length) sources.push("data/court-auction.csv");
-  if (liveCourtAuctionProperties.length) sources.push("법원경매 API");
-  if (liveOnbidProperties.length) sources.push("온비드 OpenAPI");
-
-  return {
-    ok: true,
-    source: sources.length ? sources.join(", ") : "empty",
-    properties,
-    diagnostics: {
-      onbid: {
-        configured: Boolean(onbidEndpoint() && process.env.ONBID_SERVICE_KEY),
-        fetched: liveOnbid.rawCount || 0,
-        mapped: liveOnbid.mappedCount || 0,
-        dropped: liveOnbid.droppedCount || 0,
-        message: liveOnbid.ok ? liveOnbid.message : liveOnbid.message || null
-      },
-      courtAuction: {
-        configured: Boolean(process.env.COURT_AUCTION_API_URL || process.env.COURT_AUCTION_API_BASE_URL),
-        fetched: liveCourtAuctions.rawCount || 0,
-        mapped: liveCourtAuctions.mappedCount || 0,
-        dropped: liveCourtAuctions.droppedCount || 0,
-        message: liveCourtAuctions.ok ? liveCourtAuctions.message : liveCourtAuctions.message || null
-      }
-    }
-  };
-}
-
-async function readPropertiesJson() {
-  const path = join(root, "data/properties.json");
-  if (!(await exists(path))) return [];
-  const parsed = JSON.parse(await readFile(path, "utf8"));
-  return Array.isArray(parsed) ? parsed : parsed.properties || [];
-}
-
-async function readPropertiesCsv(pathFromRoot, sourceName) {
-  const path = join(root, pathFromRoot);
-  if (!(await exists(path))) return [];
-  const rows = parseCsv(await readFile(path, "utf8"));
-  return rows.map((row) => ({ ...row, source: row.source || sourceName }));
 }
 
 async function fetchViewportProperties(params) {

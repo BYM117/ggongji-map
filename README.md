@@ -181,17 +181,27 @@ VWorld에서 확인한 공식 API:
 
 서버 API:
 
-- `GET /api/properties`: `data/properties.json`, `data/onbid.csv`, `data/court-auction.csv`를 읽어 지도용 물건으로 정규화합니다.
-- `GET /api/court-auctions`: 로컬 법원경매 크롤러 API(`/api/v1/auctions`)를 꽁지맵 물건 형식으로 정규화합니다. `.env`의 `COURT_AUCTION_API_URL`로 서버 주소를 바꿀 수 있습니다.
 - `GET /api/land-price?pnu=...&year=2025`: VWorld 개별공시지가속성조회 프록시입니다. `.env`의 `VWORLD_API_KEY`가 필요합니다.
 - `GET /api/housing-price?pnu=...&kind=apart|indvd&year=2026&address=...`: VWorld 공동주택가격(`getApartHousingPriceAttr`)·개별주택가격(`getIndvdHousingPriceAttr`) 프록시입니다. 같은 `VWORLD_API_KEY`를 씁니다. `kind=apart`는 주소에서 동/호를 파싱해 해당 세대의 공시가격 총액을 찾고(`dong`/`ho`/`area` 파라미터로 직접 지정 가능), `kind=indvd`는 PNU당 1건인 개별주택가격을 반환합니다.
 - `GET /api/officetel-price?pnu=...&address=...`: 국세청 상업용건물·오피스텔 기준시가를 로컬 인덱스에서 조회합니다. PNU로 필지를, 주소의 층/호로 세대를 특정해 기준시가 총액(단가 × (전용면적+공유면적))을 반환합니다. API 키가 필요 없습니다.
 - `GET /api/geocode?address=...`: VWorld 주소검색으로 주소를 정밀 좌표와 19자리 PNU로 변환합니다. `VWORLD_API_KEY`가 필요합니다.
 - `GET /api/seoul-deals?district=강서구&dong=화곡동&type=오피스텔`: 서울시 부동산 실거래가 정보 프록시입니다. `.env`의 `SEOUL_REAL_ESTATE_API_KEY`가 필요합니다.
-- `GET /api/onbid-properties`: 온비드 API 응답을 꽁지맵 매물 형식으로 정규화합니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
-- `GET /api/onbid`: 온비드 API 프록시 자리입니다. `.env`의 `ONBID_SERVICE_KEY`가 필요합니다.
+- `GET /api/viewport-properties?swLat=..&swLng=..&neLat=..&neLng=..&sources=court,onbid`: 지도 화면 안의 경공매 물건입니다. 화면이 실제로 쓰는 주 경로입니다.
+- `GET /api/viewport-clusters?swLat=..&...`: 넓은 화면(줌 8 이하)에서 물건 대신 시·도별 개수만 돌려줍니다.
+- `GET /api/search-properties?q=...`: 전국 대상 검색입니다. 업스트림 `q` 검색에 위임합니다.
+- `GET /api/court-auction-detail?id=...` / `GET /api/onbid-detail?id=...`: 물건 상세입니다. 출처에 따라 갈라 부릅니다.
+- `GET /api/court-auction-asset` / `GET /api/onbid-asset`: 상세 사진 중계입니다. 응답에 실려 나가는 주소라 화면이 직접 만들지 않습니다.
+- `GET /api/parcel-boundary?pnu=...`: 선택한 물건의 필지 경계입니다.
+- `GET /api/client-config`: 네이버 지도 Client ID를 내려줍니다.
 
-대법원경매는 공식 공개 API가 확인되지 않아 현재는 `data/court-auction.csv` 반입 방식으로 처리합니다. 무단 크롤링으로 붙이면 서비스 안정성과 약관 문제가 생길 수 있어 별도 데이터 공급원이나 수동 반입 경로를 먼저 씁니다.
+> **2026-09-14에 지운 엔드포인트:** `/api/properties`, `/api/court-auctions`,
+> `/api/onbid-properties`, `/api/onbid`. 화면이 하나도 부르지 않는데 인증 없이 열려 있어
+> 누구나 VWorld·온비드 API 키 할당량을 쓸 수 있었다. 특히 `/api/onbid`는 온비드 응답을
+> 가공 없이 그대로 돌려주고 있었다. 함께 `data/properties.json` · `data/onbid.csv` ·
+> `data/court-auction.csv` 반입 경로도 사라졌다 — `/api/properties` 말고는 읽는 곳이 없었다.
+> 되살릴 일이 생기면 커밋 `79cb1aa` 다음 커밋을 되돌리면 된다.
+
+대법원경매 물건은 `COURT_AUCTION_API_URL`이 가리키는 **원격 크롤러 API**에서 받습니다. 이 저장소에는 크롤러가 없고, `data/court-auction.csv` 반입 경로는 2026-09-14에 지웠습니다.
 
 온비드 기본 엔드포인트는 부동산 물건목록 조회서비스(`OnbidRlstListSrvc2`)입니다. 다른 온비드 서비스를 붙일 때만 `ONBID_API_URL`로 override합니다.
 
