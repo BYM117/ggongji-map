@@ -581,7 +581,9 @@ async function hydratePnu(baseLabel, tone, targetItems = properties) {
 
         const payload = await response.json();
         if (!payload.ok || !payload.found || !payload.pnu) {
-          if (payload.ok) geocodeMisses.add(item.id);
+          // upstreamFailed 는 "VWorld 에 못 물어봤다"는 뜻이다. 그걸 미스로 담으면
+          // 이 세션은 VWorld 가 회복돼도 그 물건을 끝까지 포기한다.
+          if (payload.ok && !payload.upstreamFailed) geocodeMisses.add(item.id);
           return null;
         }
 
@@ -1725,7 +1727,7 @@ async function hydrateSelected(item) {
           checks: uniqueValues([...(current.checks || []).filter((check) => check !== "주소 기반 추정 좌표"), "주소 좌표 확인"])
         };
         applySingleUpdate(current);
-      } else if (payload?.ok) {
+      } else if (payload?.ok && !payload.upstreamFailed) {
         geocodeMisses.add(id);
       }
     } catch (error) {
