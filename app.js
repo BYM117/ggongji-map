@@ -1347,10 +1347,23 @@ function numberFromValue(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+// 면적을 못 받은 물건에만 쓰는 대표 평형. 왜 이 숫자인지는 기록이 없어서 그대로 남겼다.
+const FALLBACK_COMPARABLE_AREA = { villa: 59, officetel: 28 };
+
+// 실거래 단가는 "면적당 얼마"라서, 곱할 면적은 그 물건의 실제 면적이어야 한다.
+// 예전에는 빌라·오피스텔만 고정값을 썼는데, landArea 에 이미 실제 전용면적이 들어 있다
+// (집합건물은 크롤러가 total_sqm = 전용면적으로 준다. 400건 확인).
+// 실측으로 고정값이 실제 중앙값의 두 배 가까웠다 —
+//   빌라      59㎡ vs 실제 중앙값 29.8㎡ (815건 중 622건이 30% 이상 어긋남)
+//   오피스텔  28㎡ vs 실제 중앙값 22.1㎡ (428건 중 225건)
+// 그만큼 "실거래 추정가"와 "실거래 대비"가 부풀려졌고, 그 값이 score 에도 들어간다.
+//
+// landArea 는 값을 못 받으면 1 이 들어온다(lib/normalize.mjs 의 `landArea || 1`).
+// 1㎡ 짜리 물건은 없으므로 그때만 예전 고정값으로 물러선다.
 function comparableArea(item) {
-  if (item.categorySub === "villa") return 59;
-  if (item.categorySub === "officetel") return 28;
-  return item.landArea;
+  const area = numberFromValue(item.landArea);
+  if (area > 1) return area;
+  return FALLBACK_COMPARABLE_AREA[item.categorySub] || area;
 }
 
 function ratioDiscount(price, baseline) {
