@@ -1790,12 +1790,20 @@ function renderMap(items) {
   renderFallbackMarkers(items);
 }
 
+// 지도가 죽으면 뷰포트 필터도 같이 꺼진다 — getVisibleProperties 의 bounds 는
+// state.naverLoaded && state.map 일 때만 구하므로, 지도가 없으면 null 이 되어
+// "화면 안"이 아니라 "그때까지 받아둔 전부"가 여기로 넘어온다.
+// 실측: 줌 10 에서 14,268건이 넘어왔다. 그만큼 버튼을 만들면 브라우저가 멈춘다.
+// 네이버 마커 쪽은 maxDotMarkers 로 이미 자르고 있는데 여기만 상한이 없었다.
+// 대체 지도는 어림용이므로 잘라도 된다. 정확한 건수는 왼쪽 목록과 헤더가 말한다.
+const FALLBACK_MARKER_LIMIT = 300;
+
 function renderFallbackMarkers(items) {
   dom.fallbackMap.querySelectorAll(".fallback-marker").forEach((marker) => marker.remove());
   if (!items.length) return;
 
   const bounds = makeBounds(properties);
-  items.forEach((item) => {
+  items.slice(0, FALLBACK_MARKER_LIMIT).forEach((item) => {
     const marker = document.createElement("button");
     marker.type = "button";
     const kind = sourceKind(item);
@@ -2018,6 +2026,7 @@ function validateNaverMapSession() {
   state.mapAliveStreak = 0;
 
   // 지도가 반쯤 만들어졌다가 죽은 경우엔 정리부터 한다(마커·폴리곤이 남는다).
+  const wasShowingMap = Boolean(state.map) || dom.fallbackMap.hidden;
   if (state.map) {
     resetNaverMapState();
   } else if (dom.fallbackMap.hidden) {
@@ -2025,6 +2034,10 @@ function validateNaverMapSession() {
     dom.naverMap.hidden = true;
     dom.fallbackMap.hidden = false;
   }
+
+  // 대체 지도로 막 되돌린 참이면 마커를 다시 그려야 한다. 칸만 보여주면 빈 격자판이다.
+  // (resetNaverMapState 는 DOM 만 바꾸고 그리지는 않는다)
+  if (wasShowingMap) render();
 
   scheduleNaverMapRetry();
 }
