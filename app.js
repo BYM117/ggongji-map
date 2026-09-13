@@ -531,12 +531,18 @@ function applyHydrationCache(items) {
   });
 }
 
+// 단계마다 properties 를 통째로 갈아끼우므로, 뒤 단계가 앞 단계 이전의 배열을 들고 있으면
+// 방금 채운 값을 낡은 사본으로 덮어쓴다. 예전에는 여기서 hydratePnu 다음에만 최신 객체를
+// 다시 집어왔는데, hydrateOfficialPrices 다음에도 똑같이 필요했다.
+// 실측: 공시가격 19건을 채운 직후 실거래 단계가 13건을 지웠고(화면에서 "공시가 확인" 숫자가
+// 채워졌다 되돌아간다), 지워진 13건이 다음 하이드레이션에서 다시 조회돼 요청의 24%가 중복이었다.
+//
+// 여기서 순서를 맞추는 대신 각 단계가 자기 시작점에서 최신 객체를 집어오게 했다.
+// 단계를 하나 더 끼워 넣어도 같은 실수가 나지 않게 하려는 것이다.
 async function hydrateReferenceData(baseLabel, tone, targetItems = properties) {
   const pnuCount = await hydratePnu(baseLabel, tone, targetItems);
-  // PNU가 새로 채워진 물건은 객체가 교체됐으므로 최신 객체로 이어서 공시가격을 조회한다.
-  const refreshed = pnuCount ? refreshTargets(targetItems) : targetItems;
-  const officialCount = await hydrateOfficialPrices(baseLabel, tone, refreshed);
-  const dealCount = await hydrateSeoulDeals(baseLabel, tone, refreshed);
+  const officialCount = await hydrateOfficialPrices(baseLabel, tone, targetItems);
+  const dealCount = await hydrateSeoulDeals(baseLabel, tone, targetItems);
   const applied = [];
 
   if (pnuCount) applied.push(`지번확인 ${pnuCount}개`);
@@ -561,7 +567,8 @@ function pnuGeocodeEligible(item) {
 }
 
 async function hydratePnu(baseLabel, tone, targetItems = properties) {
-  const candidates = targetItems.filter((item) => pnuGeocodeEligible(item) && !geocodeMisses.has(item.id));
+  // 앞 단계가 properties 를 갈아끼웠을 수 있다. 낡은 사본으로 덮어쓰지 않도록 여기서 다시 집어온다.
+  const candidates = refreshTargets(targetItems).filter((item) => pnuGeocodeEligible(item) && !geocodeMisses.has(item.id));
   if (!candidates.length) return 0;
 
   setDataStatus(`${baseLabel} · 지번(PNU) 확인 중`, tone);
@@ -605,7 +612,8 @@ async function hydratePnu(baseLabel, tone, targetItems = properties) {
 const officialPriceMisses = new Set();
 
 async function hydrateOfficialPrices(baseLabel, tone, targetItems = properties) {
-  const candidates = targetItems.filter((item) => officialPriceRequest(item) && !officialPriceMisses.has(item.id));
+  // 앞 단계가 properties 를 갈아끼웠을 수 있다. 낡은 사본으로 덮어쓰지 않도록 여기서 다시 집어온다.
+  const candidates = refreshTargets(targetItems).filter((item) => officialPriceRequest(item) && !officialPriceMisses.has(item.id));
   if (!candidates.length) return 0;
 
   setDataStatus(`${baseLabel} · 공시가격 조회 중`, tone);
@@ -729,7 +737,9 @@ function refinedCategory(item, source) {
 const SEOUL_PICKS_PER_REQUEST = 50;
 
 async function hydrateSeoulDeals(baseLabel, tone, targetItems = properties) {
-  const candidates = targetItems
+  // 앞 단계가 properties 를 갈아끼웠을 수 있다. 낡은 사본으로 덮어쓰지 않도록 여기서 다시 집어온다.
+  // 이 줄이 없으면 방금 채운 공시가격이 이 단계의 updates 에 덮여 사라진다(실측 19건 중 13건).
+  const candidates = refreshTargets(targetItems)
     .map((item) => ({ item, addressParts: parseSeoulAddress(item.address) }))
     .filter(({ item, addressParts }) => addressParts && !item.marketDealSource);
 
