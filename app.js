@@ -1653,6 +1653,27 @@ function closeDetailPanel() {
   render();
 }
 
+
+// Esc로 닫는다. 예전에는 app.js 전체에 keydown 핸들러가 하나도 없었고 닫기 버튼도
+// 같이 스크롤돼 올라가 버려서, 아래로 내려간 상태에서는 패널을 닫을 방법이 없었다.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  // 사진 확대 뷰어가 떠 있으면 그것부터 닫는다. 한 번에 둘 다 닫으면 읽던 상세를 잃는다.
+  const viewer = document.querySelector(".photo-viewer");
+  if (viewer) {
+    viewer.remove();
+    return;
+  }
+  if (state.detailOpen) closeDetailPanel();
+});
+
+// 스크롤을 내리면 상단 바가 "무엇을 얼마에" 한 줄을 같이 띄운다. 2,600px짜리 패널에서
+// 중간쯤 가면 지금 보는 게 어느 물건인지 알 방법이 없었다.
+dom.detail.addEventListener("scroll", syncDetailScrollState, { passive: true });
+
+function syncDetailScrollState() {
+  dom.detail.classList.toggle("scrolled", dom.detail.scrollTop > 120);
+}
 // 클릭한 물건의 상세를 가져온다. 경매는 법원 크롤러, 공매는 온비드 OpenAPI로 간다.
 //
 // 두 쪽의 물건번호는 생김새부터 다르다(2024타경124807 vs 2021-02168-407). 예전에는 출처를
@@ -2753,6 +2774,14 @@ function sourceBadge(item) {
   return `<span class="source-badge ${sourceKind(item)}">${sourceShortLabel(item)}</span> `;
 }
 
+// ── 상세 패널 ───────────────────────────────────────────────────────────────
+//
+// 순서가 곧 주장이다. "사면 안 되는 이유" → "가격" → "권리" → "물건" → "참고 자료".
+//
+// 예전에는 사실상 반대였다. 실측(2024타경56060, 2,593px)에서 단지 매칭에 실패한
+// 국토부 실거래가 전체 높이의 33%(848px)를 먹었고, 공매(2025-16415-014)에서는
+// 최저가 1.4억짜리 물건에 붙은 보증금 1.3억 대항력 임차권이 18개 섹션 중 10번째,
+// 그걸 경고하는 문장은 15·16번째에 있었다. 첫 화면에 없는 경고는 없는 것과 같다.
 function renderPropertyDetail(item) {
   if (!item) {
     dom.detail.innerHTML = `<p class="address">선택된 물건이 없습니다.</p>`;
@@ -2762,68 +2791,307 @@ function renderPropertyDetail(item) {
   const detail = state.detailData && state.detailData.id === item.id ? state.detailData : null;
   const loading = state.detailLoadingId === item.id;
 
+  // 같은 물건을 다시 그리는 것(로딩 → 도착)뿐이면 읽던 자리를 지킨다. innerHTML을
+  // 갈아끼우면 scrollTop이 0으로 돌아가서, 상세가 늦게 오는 물건일수록 읽던 줄을 잃었다.
+  const sameItem = dom.detail.dataset.itemId === item.id;
+  const keepScroll = sameItem ? dom.detail.scrollTop : 0;
+
   dom.detail.innerHTML = `
-    <div class="detail-nav">
-      <button class="back-button" type="button" id="closeDetailPanel">✕ 닫기</button>
-      <span class="case-no">${escapeHtml(item.caseNo)}</span>
-    </div>
-    ${renderDetailPhotos(detail, loading)}
-    <section class="detail-header">
-      <div class="risk-row">
-        <span class="case-no">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
-        <span class="risk-badge ${riskClass[item.risk] || ""}">위험 ${escapeHtml(item.risk)}</span>
-      </div>
-      <h2>${escapeHtml(item.title)}</h2>
-      <p class="detail-meta">${escapeHtml(item.address)}<br />입찰일 ${formatDate(item.bidDate)} · ${Number(item.failCount) || 0}회 유찰 · ${escapeHtml(item.zoning)}</p>
-    </section>
-    <section class="detail-grid" aria-label="상세 수치">
-      ${detailStat("입찰까지", formatDday(item.bidDate))}
-      ${detailStat("최저입찰가", formatWon(item.minBid))}
-      ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral")}
-      ${detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item))}
-      ${item.marketValue > 0 ? detailStat("실거래 추정가", formatWon(item.marketValue)) : ""}
-      ${item.marketValue > 0 ? detailStat("실거래 대비", formatSignedPercent(item.marketDiscount), item.marketDiscount >= 0 ? "positive" : "negative") : ""}
-      ${item.officialReferenceValue ? detailStat(item.officialReferenceLabel || "토지공시지가 참고", formatWon(item.officialReferenceValue), "neutral") : ""}
-      ${item.officialLandPriceSource ? detailStat("토지공시지가", `${item.officialLandPriceYear}년`) : ""}
-      ${item.publicHousingPriceSource ? detailStat(item.publicHousingPriceSource, `${item.publicHousingPriceYear}년${item.publicHousingPriceUnit?.dong ? ` · ${item.publicHousingPriceUnit.dong}동` : ""}${item.publicHousingPriceUnit?.ho ? ` ${item.publicHousingPriceUnit.ho}호` : ""}`) : ""}
-      ${item.publicStandardPriceSource ? detailStat(item.publicStandardPriceSource, `${item.publicStandardPriceUnit?.floor ? `${item.publicStandardPriceUnit.floor}층 ` : ""}${item.publicStandardPriceUnit?.ho ? `${item.publicStandardPriceUnit.ho}호` : ""}`.trim() || "확인") : ""}
-    </section>
+    ${renderDetailTopbar(item)}
     ${renderVerdict(item, detail)}
-    <section class="detail-section">
-      <h3>판단 메모</h3>
-      <p class="address">${escapeHtml(item.memo)}</p>
-      <div class="tag-row">${mergeChecks(item, detail).map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
-    </section>
-    <section class="detail-section">
-      <h3>인근 실거래 참고</h3>
-      <div class="deal-list">
-        ${
-          item.nearbyDeals.length
-            ? item.nearbyDeals
-                .map(
-                  (deal) => `
-            <div class="deal-row">
-              <div>
-                <strong>${escapeHtml(deal.label)}</strong><br />
-                <span class="case-no">${escapeHtml(deal.date)}${formatDealMeta(deal)}</span>
-              </div>
-              <strong>${formatWon(deal.pricePerSqm)}/㎡</strong>
-            </div>`
-                )
-                .join("")
-            : `<p class="address">표시할 인근 실거래 데이터가 없습니다.</p>`
-        }
-      </div>
-    </section>
-    ${sourceKind(item) === "onbid" ? renderOnbidDetailSections(detail, loading) : renderCourtDetailSections(detail, loading)}
-    <div class="source-row">
-      <span>데이터 출처</span>
-      <strong>${escapeHtml(item.source)}</strong>
-    </div>
+    ${renderDetailPhotos(detail, loading)}
+    ${renderDetailHeader(item, detail)}
+    ${renderDetailNumbers(item, detail)}
+    ${renderRiskGroup(item, detail, loading)}
+    ${renderSubjectGroup(item, detail, loading)}
+    ${renderReferenceGroup(item, detail, loading)}
+    ${renderSourceRow(item, detail)}
   `;
+
+  dom.detail.dataset.itemId = item.id;
+  // innerHTML을 갈아끼우면 scrollTop이 0으로 떨어졌다가 여기서 제자리로 돌아온다.
+  // 그 왕복은 한 태스크 안에서 끝나 scroll 이벤트가 한 번도 안 뜰 수 있으므로,
+  // 상단 바 상태는 이벤트에 맡기지 말고 여기서 직접 맞춘다.
+  dom.detail.scrollTop = keepScroll;
+  syncDetailScrollState();
 
   document.querySelector("#closeDetailPanel")?.addEventListener("click", closeDetailPanel);
   bindPhotoViewer();
+}
+
+// 스크롤해도 남아야 하는 것: 닫는 방법과 "지금 보고 있는 게 무엇인지".
+// 예전에는 이 줄이 position:static이라 2,593px 중 1,200px만 내려도 닫기 버튼이
+// 화면 밖으로 나갔다. Esc 핸들러도 없어서, 스크롤을 맨 위로 되돌리는 것 말고는
+// 패널을 닫을 방법이 아예 없었다. 모바일은 화면 전체를 덮으므로 더 나빴다.
+function renderDetailTopbar(item) {
+  // 안쪽 줄은 .detail-nav 를 그대로 쓴다. 새 클래스를 만들면 styles.css 상단의
+  // 공유 셀렉터 목록(.brandbar, .card-main, … , .detail-nav)에 손을 대야 하는데,
+  // 그 목록 중간에 끼워 넣다가 .tag.good 회귀가 났던 전력이 있다.
+  return `
+    <div class="detail-topbar">
+      <div class="detail-nav">
+        <button class="back-button icon-only" type="button" id="closeDetailPanel" aria-label="상세 닫기">✕</button>
+        <span class="topbar-id">${sourceBadge(item)}${escapeHtml(item.caseNo)}</span>
+        <span class="risk-badge ${riskClass[item.risk] || ""}">위험 ${escapeHtml(item.risk)}</span>
+      </div>
+      <div class="detail-topbar-brief" aria-hidden="true">
+        <span>${escapeHtml(detailTitle(item))}</span>
+        <strong>${escapeHtml(formatWon(item.minBid))}</strong>
+      </div>
+    </div>`;
+}
+
+// 온비드 물건은 title이 주소 문자열 그대로다. 그대로 쓰면 24px 제목과 바로 밑 주소가
+// 글자 하나까지 같은 줄로 두 번 나온다(모바일에서 그 둘이 첫 화면의 절반을 먹었다).
+//
+// 종별을 아는 물건은 종별로 제목을 세운다. 모르는 물건은 주소를 제목으로 쓰되
+// 아래 주소 줄을 지우고 글자를 낮춘다(.address-title). 공매 50건 중 45건이
+// categorySub "unknown"이라, 여기서 "공매물건"만 남기면 제목이 아무 말도 안 한다.
+function detailTitle(item) {
+  const title = String(item.title || "").trim();
+  const address = String(item.address || "").trim();
+  if (title && title !== address) return title;
+
+  const taxonomy = window.GGONGJI_CATEGORIES;
+  const label = taxonomy && item.categorySub ? taxonomy.subLabel(item.categorySub) : "";
+  const suffix = sourceKind(item) === "onbid" ? "공매물건" : "경매물건";
+  if (!label || label === "용도 확인필요") return address || suffix;
+  return `${label} ${suffix}`;
+}
+
+function renderDetailHeader(item, detail) {
+  const title = detailTitle(item);
+  const address = String(item.address || "").trim();
+  const addressIsTitle = title === address;
+  const specs = detailSpecs(item, detail);
+
+  return `
+    <section class="detail-header${addressIsTitle ? " address-title" : ""}">
+      <h2>${escapeHtml(title)}</h2>
+      ${addressIsTitle ? "" : `<p class="detail-meta">${escapeHtml(address)}</p>`}
+      ${specs.length ? `<p class="detail-specs">${specs.map((spec) => escapeHtml(spec)).join(" · ")}</p>` : ""}
+    </section>`;
+}
+
+// 면적·준공연도·구조는 상세 payload에 늘 실려 오는데 화면이 한 번도 그린 적이 없었다.
+// 바로 아래 실거래 목록이 "64.5㎡ 13.3억"을 늘어놓는 마당에 이 물건이 몇 ㎡인지
+// 없으면 비교가 성립하지 않는다.
+function detailSpecs(item, detail) {
+  const specs = [];
+  const area = detailAreaSqm(item, detail);
+  if (area > 0) specs.push(`${stripZero(area)}㎡ · ${stripZero(area / 3.305785)}평`);
+
+  const building = (detail && detail.building) || null;
+  const builtYear = String((building && building.use_apr_day) || "").slice(0, 4);
+  if (builtYear.length === 4) specs.push(`${builtYear}년 준공`);
+  if (building && building.structure) specs.push(String(building.structure));
+
+  // zoning은 법원 목록구분에서 온 값이라 종별을 한 번 더 말해 준다. 다만 온비드는
+  // 이 칸이 통째로 "확인 필요"로 오므로, 그대로 찍으면 라벨 없는 경고처럼 읽힌다.
+  const zoning = String(item.zoning || "").trim();
+  if (zoning && zoning !== "확인 필요") specs.push(zoning);
+
+  const saleForm = window.GGONGJI_CATEGORIES && item.saleForm ? window.GGONGJI_CATEGORIES.saleFormLabel(item.saleForm) : "";
+  if (saleForm && saleForm !== "기타") specs.push(saleForm);
+
+  // 공매 집합건물은 전유면적과 대지지분이 따로 온다. 대지지분은 지분 매각 여부를
+  // 가늠하는 값이라 전유면적에 묻히면 안 된다.
+  const landShare = onbidAreaOf(detail, "토지");
+  if (landShare > 0 && landShare !== area) specs.push(`대지지분 ${stripZero(landShare)}㎡`);
+
+  return specs;
+}
+
+// 면적의 주인은 상세 payload다. 법원은 area.totalSqm 하나로 오고, 온비드는 areas[]에
+// "건물>건물 18.62㎡" / "토지>대 5.36㎡"처럼 갈라서 온다.
+//
+// 목록의 item.landArea는 그중 토지 쪽을 받아 둔 사본이다. 집합건물에서 그걸 그대로 쓰면
+// 전유면적 18.62㎡ 자리에 대지지분 5.36㎡가 앉는다(실측 2025-16415-014에서 제목 밑에
+// "5.4㎡ · 1.6평"이 떴다). 상세가 오기 전 화면을 위해 맨 마지막 수단으로만 남긴다.
+function detailAreaSqm(item, detail) {
+  const fromDetail = Number(detail && detail.area && (detail.area.totalSqm || detail.area.buildingSqm)) || 0;
+  if (fromDetail > 0) return fromDetail;
+
+  const building = onbidAreaOf(detail, "건물");
+  if (building > 0) return building;
+
+  return Number(item.landArea) || 0;
+}
+
+function onbidAreaOf(detail, keyword) {
+  const entry = ((detail && detail.areas) || []).find((area) => String(area.kind || "").includes(keyword));
+  const match = String((entry && entry.size) ?? "").match(/[\d.]+/);
+  return match ? Number(match[0]) || 0 : 0;
+}
+
+// 숫자 칸. 경매판의 기본 분모는 감정가인데, item.appraisal은 833건 전부에 실려 오면서도
+// app.js 어디에서도 쓰인 적이 없었다(grep 0건). 그 자리에 "-97%"(공시 대비)와
+// "-97%"(실거래 대비)가 나란히 있어서, 같은 크기의 같은 숫자 두 개가 서로 다른 뜻이었다.
+function renderDetailNumbers(item, detail) {
+  const appraisal = Number(item.appraisal) || 0;
+  const minBid = Number(item.minBid) || 0;
+  const bidRatio = appraisal > 0 && minBid > 0 ? Math.max(1, Math.round((minBid / appraisal) * 100)) : null;
+  const fails = Number(item.failCount) || 0;
+
+  return `
+    <section class="detail-grid" aria-label="상세 수치">
+      ${detailStat("입찰까지", formatDday(item.bidDate), "", formatDate(item.bidDate))}
+      ${detailStat("최저입찰가", formatWon(minBid), "", fails > 0 ? `${fails}회 유찰` : "신건")}
+      ${appraisal > 0 ? detailStat("감정가", formatWon(appraisal), "", "1회차 최저가") : ""}
+      ${bidRatio !== null ? detailStat("감정가 대비", `${bidRatio}%`, "", "최저가율") : ""}
+      ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral", officialBasisNote(item))}
+      ${detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item), residualNote(item))}
+    </section>`;
+}
+
+// 공시기준가가 무엇을 근거로 한 값인지(공동주택가격/개별공시지가/기준시가)와 기준연도·호수는
+// 예전에 각각 제 몫의 숫자 타일을 차지했다. 값 자리에 "2026년"이 큼직하게 박힌 타일이
+// 최대 세 개까지 붙어서, 숫자 칸이 근거 표시로 넘쳤다. 근거는 근거 자리에 둔다.
+function officialBasisNote(item) {
+  if (!item.officialComparable) return item.officialMissingLabel || "기준 확인 필요";
+  const parts = [];
+  if (item.officialBasisShortLabel) parts.push(String(item.officialBasisShortLabel));
+  const year = item.publicHousingPriceYear || item.officialLandPriceYear || item.officialPriceYear;
+  if (year) parts.push(`${year}년`);
+  const unit = item.publicHousingPriceUnit || item.publicStandardPriceUnit || null;
+  if (unit && unit.ho) parts.push(`${unit.dong ? `${unit.dong}동 ` : ""}${unit.ho}호`);
+  return parts.join(" · ");
+}
+
+// 최저입찰가나 공시기준가 한쪽이 비면 잔존 비율 자체가 없다. 그때 "잔존 "만 남기면
+// 값이 잘린 것처럼 읽히므로 근거 줄을 통째로 비운다.
+function residualNote(item) {
+  const ratio = residualRatio(item);
+  if (!item.officialComparable || ratio === null) return "";
+  return `잔존 ${Math.max(1, Math.round(ratio * 100))}%`;
+}
+
+// 실거래 추정가는 "인근 실거래 n건의 ㎡당 중앙값 × 이 물건 면적"이다. 실측해 보면
+// 그 n건이 3건이고 ㎡당 389만~1,858만으로 4.8배가 벌어지는 일이 흔하다. 게다가
+// 3건 중 2건이 다른 동일 때도 있다.
+//
+// 그래서 이 값을 최저입찰가·공시기준가와 같은 크기의 숫자 타일에서 뺐다. 근거를
+// 옆에 두지 않은 추정치는 확정된 값으로 읽히고, 그게 이 프로젝트가 가장 경계하는
+// 종류의 거짓말이다. 지금은 그 값을 만든 세 줄 바로 위에 붙여 놓는다.
+function marketEstimateLine(item) {
+  const value = Number(item.marketValue) || 0;
+  const deals = item.nearbyDeals || [];
+  if (value <= 0 || !deals.length) return "";
+  return `<p class="address">이 면적 환산 <strong>${formatWon(value)}</strong> · 최저입찰가는 그 대비 ${escapeHtml(formatSignedPercent(item.marketDiscount))} · ${deals.length}건 중앙값${escapeHtml(nearbySpreadNote(deals))}</p>`;
+}
+
+function nearbySpreadNote(deals) {
+  const prices = deals.map((deal) => Number(deal.pricePerSqm) || 0).filter((value) => value > 0);
+  if (prices.length < 2) return "";
+  const spread = Math.max(...prices) / Math.min(...prices);
+  // 표본끼리 몇 배씩 벌어져 있으면 중앙값은 대푯값이 아니다. 그 사실을 숨기지 않는다.
+  return spread >= 2 ? ` · 편차 ${stripZero(spread)}배` : "";
+}
+
+// ① 권리·위험 — 돈을 더 내야 하는 사유만 모은다. 첫 화면 다음에 바로 온다.
+function renderRiskGroup(item, detail, loading) {
+  if (loading && !detail) {
+    return `<section class="detail-section"><p class="address">권리 정보를 불러오는 중입니다…</p></section>`;
+  }
+  const sections = sourceKind(item) === "onbid" ? onbidRiskSections(detail) : courtRiskSections(detail);
+  const checks = mergeChecks(item, detail);
+  if (checks.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>확인 항목</h3>
+        <div class="tag-row">${checks.map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
+      </section>`);
+  }
+  return sections.filter(Boolean).join("");
+}
+
+// ② 물건 자체 — 면적·일정·건축물. 판단의 재료지 경고는 아니다.
+function renderSubjectGroup(item, detail, loading) {
+  if (loading && !detail) return "";
+  const sections = sourceKind(item) === "onbid" ? onbidSubjectSections(detail) : courtSubjectSections(detail);
+  return sections.filter(Boolean).join("");
+}
+
+// ③ 참고 자료 — 기본으로 접는다.
+//
+// 이 묶음이 예전 패널의 절반이었다. 특히 국토부 실거래는 스스로 "단지 매칭 실패"라고
+// 적으면서도 848px(33%)을 먹었다. 매칭에 성공한 블록은 ②에서 펼친 채로 보여주고,
+// 실패한 것과 사건 서류는 여기로 내린다.
+function renderReferenceGroup(item, detail, loading) {
+  if (loading && !detail) return "";
+  const sections = [
+    renderNearbyDeals(item),
+    ...(sourceKind(item) === "onbid" ? onbidReferenceSections(detail) : courtReferenceSections(detail))
+  ].filter(Boolean);
+  if (!sections.length) return "";
+
+  return `
+    <details class="detail-fold">
+      <summary>
+        <span>참고 자료</span>
+        <small>${escapeHtml(referenceSummaryLabel(item, detail))}</small>
+      </summary>
+      <div class="detail-fold-body">${sections.join("")}</div>
+    </details>`;
+}
+
+function referenceSummaryLabel(item, detail) {
+  const labels = [];
+  if ((item.nearbyDeals || []).length) labels.push("인근 실거래");
+  if (detail && detail.transactions) labels.push("국토부 실거래");
+  if (detail && (detail.documents || []).length) labels.push("법원 문서");
+  if (detail && (detail.appraisals || []).length) labels.push("감정평가서");
+  if (detail && (detail.caseTables || []).length) labels.push("사건 정보");
+  return labels.slice(0, 3).join(" · ") || "원문 자료";
+}
+
+function renderNearbyDeals(item) {
+  const deals = item.nearbyDeals || [];
+  // 없으면 섹션 자체를 만들지 않는다. 예전에는 "표시할 데이터가 없습니다" 한 줄을 위해
+  // 제목까지 딸린 47px 빈 칸이 늘 자리를 잡고 있었다(서울 밖 공매는 늘 이 상태다).
+  if (!deals.length) return "";
+  const area = Number(item.landArea) || 0;
+
+  return `
+    <section class="detail-section">
+      <h3>인근 실거래 (서울시)</h3>
+      ${marketEstimateLine(item)}
+      <div class="deal-list">
+        ${deals
+          .map(
+            (deal) => `
+          <div class="deal-row">
+            <div>
+              <strong>${escapeHtml(deal.label)}</strong><br />
+              <span class="case-no">${escapeHtml(deal.date)}${formatDealMeta(deal)}</span>
+            </div>
+            <strong>${formatWon(deal.pricePerSqm)}/㎡${area > 0 ? `<br /><span class="case-no">이 면적 ${formatWon(deal.pricePerSqm * area)}</span>` : ""}</strong>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </section>`;
+}
+
+function renderSourceRow(item, detail) {
+  // 경매는 최저가와 기일이 계속 바뀐다. 이 프로젝트가 캐시 유효시간을 늘리지 않기로 한
+  // 이유("오래된 값이 최신인 척 뜨는 것이 느린 것보다 나쁘다")가 그대로 화면에도 적용된다.
+  // 실측에서 8일 전에 수집된 상세를 지금 값처럼 보여주고 있었다.
+  const collected = formatCollectedAt(detail && detail.detailCollectedAt);
+  return `
+    <div class="source-row">
+      <span>데이터 출처</span>
+      <strong>${escapeHtml(item.source)}${collected ? ` · ${escapeHtml(collected)}` : ""}</strong>
+    </div>`;
+}
+
+function formatCollectedAt(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const days = Math.floor((Date.now() - date.getTime()) / 86400000);
+  if (days <= 0) return "오늘 수집";
+  return `${days}일 전 수집`;
 }
 
 // 현장 사진 — 상세의 첫인상이라 맨 위에 크게 놓는다.
@@ -2847,21 +3115,20 @@ function renderDetailPhotos(detail, loading) {
     </div>`;
 }
 
-// 온비드 원문에서 온 것들: 입찰 일정 · 면적 · 임대차 · 등기권리 · 감정평가서 · 현황
+// 온비드 원문에서 온 것들을 세 묶음으로 가른다.
+//   위험 — 지분매각 · 임대차 · 등기권리 · 주의사항
+//   물건 — 입찰 일정 · 면적 · 현황 조사
+//   참고 — 감정평가서 · 공고 정보
 //
 // 법원 쪽과 섹션 구성이 다르다. 공매는 사건기록이 없는 대신 회차별 체감 일정과
 // 전입세대 조사서가 있다. 클래스는 법원 섹션이 쓰던 것을 그대로 쓴다 —
 // 여기서만 쓰는 새 CSS를 만들면 styles.css가 또 갈라진다.
-function renderOnbidDetailSections(detail, loading) {
-  if (loading && !detail) {
-    return `<section class="detail-section"><p class="address">상세 정보를 불러오는 중입니다…</p></section>`;
-  }
-  if (!detail) return "";
-
+function onbidRiskSections(detail) {
+  if (!detail) return [];
   const sections = [];
 
   // 지분 매각은 단독으로 쓰지도 팔지도 못한다. 면적 줄에 묻어가면 놓치므로 맨 위로 뺀다.
-  const shares = (detail.areas || []).filter((area) => area.note && area.note.includes("지분"));
+  const shares = onbidShareAreas(detail);
   if (shares.length) {
     sections.push(`
       <section class="detail-section">
@@ -2870,29 +3137,16 @@ function renderOnbidDetailSections(detail, loading) {
       </section>`);
   }
 
-  sections.push(renderOnbidRounds(detail.rounds, detail.appraisalAmount));
-
-  const areas = detail.areas || [];
-  if (areas.length) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>면적</h3>
-        <div class="case-list">
-          ${areas.map((area) => `
-            <div class="case-row">
-              <span>${escapeHtml(area.kind || "면적")}</span>
-              <strong>${escapeHtml(area.size)}</strong>
-            </div>`).join("")}
-        </div>
-      </section>`);
-  }
-
   // 대항력 있는 임차인이 있으면 낙찰자가 보증금을 떠안는다. 공매에서 가장 비싼 실수다.
+  // 그래서 조사된 보증금 합계를 섹션 머리에 먼저 적는다 — 줄마다 흩어져 있으면
+  // "얼마가 걸려 있는지"를 사용자가 직접 더해야 한다.
   const tenants = detail.tenants || [];
   if (tenants.length) {
+    const deposit = tenantDepositTotal(detail);
     sections.push(`
       <section class="detail-section">
         <h3>임대차 · 전입세대</h3>
+        ${deposit > 0 ? `<p class="address">조사된 보증금 합계 <strong>${formatWon(deposit)}</strong>. 배분되지 않는 부분은 낙찰자 부담이 될 수 있습니다.</p>` : ""}
         <div class="deal-list">
           ${tenants.map((tenant) => `
             <div class="deal-row">
@@ -2926,6 +3180,52 @@ function renderOnbidDetailSections(detail, loading) {
       </section>`);
   }
 
+  for (const note of splitOnbidNotes(detail).risk) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>${escapeHtml(note.title)}</h3>
+        <p class="address">${escapeHtml(note.body)}</p>
+      </section>`);
+  }
+
+  return sections;
+}
+
+function onbidSubjectSections(detail) {
+  if (!detail) return [];
+  const sections = [renderOnbidRounds(detail.rounds, detail.appraisalAmount)];
+
+  const areas = detail.areas || [];
+  if (areas.length) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>면적</h3>
+        <div class="case-list">
+          ${areas.map((area) => `
+            <div class="case-row">
+              <span>${escapeHtml(area.kind || "면적")}</span>
+              <strong>${escapeHtml(area.size)}</strong>
+            </div>`).join("")}
+        </div>
+      </section>`);
+  }
+
+  // 온비드가 현장조사로 적어 온 문장들. 공부상 용도와 실제 용도가 다른 경우가 여기서만 드러난다.
+  for (const note of splitOnbidNotes(detail).subject) {
+    sections.push(`
+      <section class="detail-section">
+        <h3>${escapeHtml(note.title)}</h3>
+        <p class="address">${escapeHtml(note.body)}</p>
+      </section>`);
+  }
+
+  return sections;
+}
+
+function onbidReferenceSections(detail) {
+  if (!detail) return [];
+  const sections = [];
+
   const appraisals = (detail.appraisals || []).filter((item) => item.url || item.org);
   if (appraisals.length) {
     sections.push(`
@@ -2941,15 +3241,6 @@ function renderOnbidDetailSections(detail, loading) {
               ${item.url ? `<a class="doc-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">원문</a>` : ""}
             </div>`).join("")}
         </div>
-      </section>`);
-  }
-
-  // 온비드가 현장조사로 적어 온 문장들. 공부상 용도와 실제 용도가 다른 경우가 여기서만 드러난다.
-  for (const note of detail.notes || []) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>${escapeHtml(note.title)}</h3>
-        <p class="address">${escapeHtml(note.body)}</p>
       </section>`);
   }
 
@@ -2978,7 +3269,56 @@ function renderOnbidDetailSections(detail, loading) {
       </section>`);
   }
 
-  return sections.filter(Boolean).join("");
+  return sections;
+}
+
+// 온비드 지분 정보는 areas[].note에만 적혀 온다. 법원처럼 share 객체로 오지 않는다.
+//
+// 그런데 집합건물은 대지권이 원래 지분이다 — 305호가 대지 338㎡ 중 5.36㎡를 갖는 것은
+// 아파트·오피스텔의 정상 구조지 경고할 일이 아니다. "지분"이라는 글자만 보고 걸렀더니
+// 실측 42건 중 39건(93%)이 지분 매각으로 떴고, 그 안에서 진짜 7건이 묻혔다.
+//
+// 진짜 지분 매각은 둘 중 하나다.
+//   ① 건물 자체가 지분으로 나온 경우 (42건 중 7건)
+//   ② 건물 없이 토지 지분만 파는 경우 (42건 중 1건)
+function onbidShareAreas(detail) {
+  const areas = (detail && detail.areas) || [];
+  const shares = areas.filter((area) => area.note && area.note.includes("지분"));
+  if (!shares.length) return [];
+
+  const buildingShares = shares.filter((area) => String(area.kind || "").includes("건물"));
+  if (buildingShares.length) return buildingShares;
+
+  // 건물 항목이 있는데 지분이 아니면, 남은 토지 지분은 그 건물에 딸린 대지권이다.
+  const hasBuilding = areas.some((area) => String(area.kind || "").includes("건물"));
+  return hasBuilding ? [] : shares;
+}
+
+function tenantDepositTotal(detail) {
+  return ((detail && detail.tenants) || []).reduce((sum, tenant) => sum + (Number(tenant.deposit) || 0), 0);
+}
+
+// 어느 노트가 경고이고 어느 노트가 현황 설명인지 가른다.
+const ONBID_RISK_NOTE_TITLE = /주의|부대조건|유의|제한/;
+
+// 온비드 원문은 같은 문장을 "부대조건"과 "입찰 시 주의사항" 두 키에 함께 실어 보낸다.
+// 실측 물건에서 대항력 임차권 경고가 글자 하나까지 같은 채로 두 섹션에 찍혔다.
+// 한쪽 끝에 공고일이 덧붙어 오는 것 말고는 같은 문장이라 완전 일치로는 안 걸러진다.
+function splitOnbidNotes(detail) {
+  const risk = [];
+  const subject = [];
+  const seen = [];
+
+  for (const note of (detail && detail.notes) || []) {
+    const body = String(note.body || "").trim();
+    if (!body) continue;
+    const key = body.replace(/\s+/g, "");
+    if (seen.some((prev) => prev.includes(key) || key.includes(prev))) continue;
+    seen.push(key);
+    (ONBID_RISK_NOTE_TITLE.test(String(note.title || "")) ? risk : subject).push(note);
+  }
+
+  return { risk, subject };
 }
 
 // 회차별 최저가 체감표. 공매는 유찰될 때마다 감정가의 10%씩 떨어지도록 일정이 미리 짜여 있어서,
@@ -3038,13 +3378,12 @@ function formatOnbidDate(value, yearMode = "auto") {
   return `${showYear ? `${year}년 ` : ""}${month}월 ${day}일${time}`;
 }
 
-// 법원 원문에서 온 것들: 사건 정보 · 문서 · 지분 · 위험 플래그
-function renderCourtDetailSections(detail, loading) {
-  if (loading && !detail) {
-    return `<section class="detail-section"><p class="address">상세 정보를 불러오는 중입니다…</p></section>`;
-  }
-  if (!detail) return "";
-
+// 법원 원문에서 온 것들을 온비드와 같은 세 묶음으로 가른다.
+//   위험 — 지분매각
+//   물건 — 건축물대장 · (단지가 잡힌) 국토부 실거래
+//   참고 — (단지를 못 잡은) 국토부 실거래 · 법원 문서 · 사건 정보 · 원문 링크
+function courtRiskSections(detail) {
+  if (!detail) return [];
   const sections = [];
 
   if (detail.share && detail.share.isShareSale) {
@@ -3055,13 +3394,25 @@ function renderCourtDetailSections(detail, loading) {
       </section>`);
   }
 
-  // 권리 체크 플래그는 판단 메모의 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
+  // 권리 체크 플래그는 "확인 항목" 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
+  return sections;
+}
 
-  // 국토부 실거래가는 크롤러가 물건별로 미리 채워 상세 payload에 실어 보낸다.
-  // 위쪽 "인근 실거래 참고"(서울시 API)와 달리 전국이 대상이고 전월세·단지명·층까지 있다.
-  // 그동안 payload로 받아만 놓고 화면에서 버리고 있었다.
-  const marketHtml = renderMolitTransactions(detail.transactions);
-  if (marketHtml) sections.push(marketHtml);
+function courtSubjectSections(detail) {
+  if (!detail) return [];
+  const sections = [courtBuildingSection(detail)];
+
+  // 단지·평형이 잡힌 실거래만 이 물건의 시세로 읽어도 된다. 못 잡은 것은 참고 자료로 내린다.
+  if (molitMatched(detail.transactions)) sections.push(renderMolitTransactions(detail.transactions));
+
+  return sections;
+}
+
+function courtReferenceSections(detail) {
+  if (!detail) return [];
+  const sections = [];
+
+  if (!molitMatched(detail.transactions)) sections.push(renderMolitTransactions(detail.transactions));
 
   const documents = detail.documents || [];
   if (documents.length) {
@@ -3107,20 +3458,81 @@ function renderCourtDetailSections(detail, loading) {
       </section>`);
   }
 
-  return sections.join("");
+  return sections;
+}
+
+// 건축물대장이 payload에 통째로 실려 오는데(detail.building) 화면이 한 번도 쓴 적이 없었다.
+// 빌라·다세대는 준공연도와 구조가 곧 가격이다. 연면적·대지면적은 지분 물건에서
+// "내 몫이 전체의 얼마인지"를 가늠하는 유일한 단서이기도 하다.
+function courtBuildingSection(detail) {
+  const building = (detail && detail.building) || null;
+  if (!building) return "";
+
+  const scale = [
+    Number(building.grnd_flr_cnt) > 0 ? `지상 ${building.grnd_flr_cnt}층` : "",
+    Number(building.hhld_cnt) > 0 ? `${building.hhld_cnt}세대` : ""
+  ].filter(Boolean).join(" · ");
+  const ratios = [
+    Number(building.bc_rat) > 0 ? `건폐율 ${stripZero(Number(building.bc_rat))}%` : "",
+    Number(building.vl_rat) > 0 ? `용적률 ${stripZero(Number(building.vl_rat))}%` : ""
+  ].filter(Boolean).join(" · ");
+
+  const areas = [
+    Number(building.tot_area) > 0 ? `연면적 ${stripZero(Number(building.tot_area))}㎡` : "",
+    Number(building.plat_area) > 0 ? `대지 ${stripZero(Number(building.plat_area))}㎡` : ""
+  ].filter(Boolean).join(" · ");
+
+  // 건물명은 주소 줄이 이미 말한다(… 연희로31길 19 (연희동,코코하우스)).
+  const rows = [
+    ["주용도", building.main_purpose],
+    ["구조", building.structure],
+    ["사용승인", formatCompactDate(building.use_apr_day)],
+    ["규모", scale],
+    ["면적", areas],
+    ["건폐율 · 용적률", ratios]
+  ].filter(([, value]) => value);
+
+  if (!rows.length) return "";
+
+  return `
+    <section class="detail-section">
+      <h3>건축물대장</h3>
+      <div class="case-list">
+        ${rows.map(([label, value]) => `
+          <div class="case-row">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(String(value))}</strong>
+          </div>`).join("")}
+      </div>
+    </section>`;
+}
+
+// "20161216" 같은 8자리 문자열로 온다.
+function formatCompactDate(value) {
+  const digits = String(value ?? "").replace(/[^0-9]/g, "");
+  if (digits.length < 8) return "";
+  return `${digits.slice(0, 4)}년 ${Number(digits.slice(4, 6))}월 ${Number(digits.slice(6, 8))}일`;
 }
 
 // 사건 테이블은 14개까지 오는데 대부분 빈 행이라, 값이 있는 핵심 항목만 고른다.
 const CASE_ROW_KEYS = ["사건번호", "사건명", "접수일자", "개시결정일자", "청구금액", "담당계", "종국결과", "배당요구종기"];
 
 // 국토부 실거래가(RTMS). 금액 단위가 만원이라 원으로 바꿔 기존 포맷터를 그대로 쓴다.
+//
+// matched가 false면 같은 단지·평형을 못 찾아 그 법정동 전체 거래를 보여주는 것이다.
+// 그때는 최저~최고·평균이 동네 전체 값이라 이 물건 시세로 오해하기 쉽다. 요약치는 빼고
+// 실제 거래 목록만 남긴다. 목록은 인근 시세 감을 잡는 데 그대로 쓸모가 있다.
+//
+// 매칭에 실패한 블록은 호출부(courtReferenceSections)가 접힌 "참고 자료"로 내린다.
+// 예전에는 이 섹션이 "단지 매칭 실패"라고 스스로 적어 놓고도 패널 전체 높이의
+// 33%(2,593px 중 848px)를 차지했다.
+function molitMatched(transactions) {
+  if (!transactions) return false;
+  return Boolean(transactions.sales?.matched || transactions.rent?.matched);
+}
+
 function renderMolitTransactions(transactions) {
   if (!transactions) return "";
-
-  // matched가 false면 같은 단지·평형을 못 찾아 그 법정동 전체 거래를 보여주는 것이다.
-  // 그때는 최저~최고·평균이 동네 전체 값이라 이 물건 시세로 오해하기 쉽다. 요약치는 빼고
-  // 실제 거래 목록만 남긴다. 목록은 인근 시세 감을 잡는 데 그대로 쓸모가 있다.
-  const matched = Boolean(transactions.sales?.matched || transactions.rent?.matched);
 
   // 매매와 전월세는 매칭 성공 여부가 따로 논다(매매만 단지가 잡히는 경우가 흔하다).
   // 하나로 묶어 판단하면 못 잡은 쪽에 동네 전체 평균이 이 물건 시세처럼 붙는다.
@@ -3130,9 +3542,9 @@ function renderMolitTransactions(transactions) {
   ].filter(Boolean);
   if (!blocks.length) return "";
 
-  const scope = matched
+  const scope = molitMatched(transactions)
     ? `${transactions.building || "같은 단지"} 기준`
-    : "같은 법정동 전체 기준 · 단지 매칭 실패";
+    : "단지를 찾지 못해 같은 법정동 전체 거래를 보여줍니다. 이 물건의 시세가 아닙니다.";
 
   return `
       <section class="detail-section">
@@ -3148,6 +3560,16 @@ function renderMolitBlock(label, summary, matched) {
 
   const won = (manwon) => formatWon((Number(manwon) || 0) * 10000);
 
+  // 위쪽 "인근 실거래"는 ㎡당으로만, 여기는 총액으로만 적고 있었다. 축이 달라서 두 섹션을
+  // 이어서 읽을 수가 없었다. 여기에도 ㎡당을 같이 적어 축을 맞춘다. 단, 월세가 붙은 줄은
+  // 보증금만으로 ㎡당을 내면 같은 자리에 성격이 다른 숫자가 앉으므로 뺀다.
+  const perSqm = (deal) => {
+    const area = Number(deal.area) || 0;
+    const amount = (Number(deal.amount) || 0) * 10000;
+    if (Number(deal.monthly) > 0 || area <= 0 || amount <= 0) return "";
+    return `${formatWon(amount / area)}/㎡`;
+  };
+
   return `
         <div class="case-row">
           <span>${escapeHtml(label)} ${Number(summary.count).toLocaleString("ko-KR")}건</span>
@@ -3162,7 +3584,7 @@ function renderMolitBlock(label, summary, matched) {
                 <strong>${escapeHtml(deal.name || label)}</strong><br />
                 <span class="case-no">${escapeHtml(deal.date || "")}${molitDealMeta(deal)}</span>
               </div>
-              <strong>${won(deal.amount)}${Number(deal.monthly) > 0 ? ` / 월 ${won(deal.monthly)}` : ""}</strong>
+              <strong>${won(deal.amount)}${Number(deal.monthly) > 0 ? ` / 월 ${won(deal.monthly)}` : ""}${perSqm(deal) ? `<br /><span class="case-no">${perSqm(deal)}</span>` : ""}</strong>
             </div>`
             )
             .join("")}
@@ -3245,27 +3667,98 @@ function mergeChecks(item, detail) {
 }
 
 // 상세 최상단 판정 — 할인율이 커 보이는 진짜 이유를 먼저 말한다.
+//
+// 예전에는 지분 판정을 detail.share.isShareSale 하나로만 했다. 온비드는 지분 정보를
+// areas[].note에 담아 오기 때문에, 공매 지분매각 물건에서는 이 배너가 아예 뜨지 않았다.
+// 실측 2025-16415-014는 지분매각 + 보증금 1.3억 대항력 임차권짜리인데 배너가 없었다
+// (유찰 0회 · 공시 미확인으로 ratio가 null · 위험 "보통" — 조건 넷이 전부 빗나갔다).
+// 냄새 ⑥의 잔재였다. 판정 근거는 출처를 가리지 않는 것부터 쌓는다.
 function renderVerdict(item, detail) {
   const reasons = [];
   const fails = Number(item.failCount) || 0;
+  const minBid = Number(item.minBid) || 0;
+  const appraisal = Number(item.appraisal) || 0;
   const ratio = residualRatio(item);
+
   if (fails >= 5) reasons.push(`${fails}회 유찰`);
-  if (ratio !== null && ratio <= 0.1) reasons.push(`공시기준가의 ${Math.max(1, Math.round(ratio * 100))}%까지 하락`);
-  if (detail && detail.share && detail.share.isShareSale) reasons.push("지분 매각");
-  if (item.risk === "높음") reasons.push("위험 높음");
+
+  // 하락 폭은 감정가 기준으로 먼저 말한다. 경매판이 실제로 쓰는 분모이고, 공시기준가가
+  // 아직 안 붙은 물건(공매 다수)에서도 값이 있다.
+  const drop = appraisalDropRatio(item, detail);
+  if (drop !== null && drop <= 0.3) {
+    reasons.push(`감정가의 ${Math.max(1, Math.round(drop * 100))}%까지 하락`);
+  } else if (ratio !== null && ratio <= 0.1) {
+    reasons.push(`공시기준가의 ${Math.max(1, Math.round(ratio * 100))}%까지 하락`);
+  }
+
+  if (isShareSale(item, detail)) reasons.push("지분 매각");
+
+  // 보증금은 낙찰가에 얹히는 돈이다. 최저가에 견줘 무시 못 할 크기면 먼저 말한다.
+  const deposit = tenantDepositTotal(detail);
+  const depositHeavy = deposit > 0 && (minBid <= 0 || deposit >= minBid * 0.2);
+  if (depositHeavy) reasons.push(`임차보증금 ${formatWon(deposit)} 조사됨`);
+
+  // 위험 등급은 여기 넣지 않는다. 결론이지 이유가 아니고, 스티키 상단 바의 배지가 이미
+  // 스크롤 내내 말하고 있다. 사유로 쓰던 시절에는 이 배너가 뜬 법원 물건 372건 중
+  // 372건이 "위험 높음" 때문이었다 — 배너가 배지를 한 번 더 읽어 주는 줄이었던 셈이다.
   if (!reasons.length) return "";
+
+  const advice = depositHeavy
+    ? "보증금이 배분되는지부터 확인하세요."
+    : "할인율이 아니라 유찰 사유부터 확인하세요.";
+
   return `
     <div class="verdict">
       <span class="verdict-level">확인</span>
-      <p>${escapeHtml(reasons.join(" · "))}. 할인율이 아니라 유찰 사유부터 확인하세요.</p>
+      <p>${escapeHtml(reasons.join(" · "))}. ${escapeHtml(advice)}</p>
     </div>`;
 }
 
-function detailStat(label, value, tone = "") {
+// "감정가 대비 얼마까지 내려왔나". 이 배너가 하는 유일한 주장이라 근거를 두 번 본다.
+//
+// 온비드 목록의 minBid가 회차표의 **마지막**(아직 열리지도 않은 최저 회차) 가격으로 오는
+// 물건이 있다. 실측 공매 42건 중 31건이 "유찰 0회인데 감정가의 10%"로 떴는데, 회차표를
+// 펴 보면 바로 다음 회차가 감정가 100%였다(예: 2026-04538-001, 036회차 2.61억 →
+// 045회차 0.26억, 전부 upcoming). 그 값으로 "감정가의 10%까지 하락"이라고 쓰면
+// 일어나지도 않은 하락을 지어내는 것이다.
+//
+// 그래서 회차표가 있으면 회차표를 믿는다. 목록의 minBid는 그대로 두었다 — 그 값의 주인은
+// lib/onbid.mjs이고, 화면에서 몰래 고치면 같은 규칙이 두 곳에 생긴다.
+function appraisalDropRatio(item, detail) {
+  const appraisal = Number(item.appraisal) || 0;
+  if (appraisal <= 0) return null;
+
+  const rounds = (detail && detail.rounds) || [];
+  if (rounds.length) {
+    const current = rounds.find((round) => round.phase === "open") || rounds.find((round) => round.phase === "upcoming");
+    const price = Number(current && current.price) || 0;
+    return price > 0 ? price / appraisal : null;
+  }
+
+  const minBid = Number(item.minBid) || 0;
+  return minBid > 0 ? minBid / appraisal : null;
+}
+
+// 지분 매각 판정의 단일 진입점. 법원은 share.isShareSale, 온비드는 areas[].note에
+// "지분"이 적혀 온다. 한쪽만 보면 나머지 한쪽이 통째로 조용해진다.
+// 상세가 아직 안 왔을 때는 목록 메모의 "지분 매각 의심"이 유일한 단서다.
+function isShareSale(item, detail) {
+  if (detail) {
+    if (detail.share && detail.share.isShareSale) return true;
+    if (onbidShareAreas(detail).length) return true;
+    return false;
+  }
+  return /지분/.test(String(item.memo || ""));
+}
+
+function detailStat(label, value, tone = "", note = "") {
+  // 근거가 값과 같은 말이면(기일 미정 → "미정 / 미정") 아무것도 더하지 않는다.
+  const showNote = note && note !== value;
   return `
     <div class="detail-stat">
       <span>${escapeHtml(label)}</span>
       <strong class="${tone}">${escapeHtml(value)}</strong>
+      ${showNote ? `<small>${escapeHtml(note)}</small>` : ""}
     </div>
   `;
 }
@@ -3395,8 +3888,13 @@ function fillFailDots(node, item) {
 }
 
 function formatDate(value) {
+  const date = new Date(value);
+  // Intl은 Invalid Date에 RangeError를 던진다. 상세 패널은 innerHTML을 대입하기 전에
+  // 이 함수를 부르므로, 여기서 터지면 패널이 빈 채로 남고 닫기 버튼조차 생기지 않는다
+  // (지금 데이터로는 833건 전부 파싱되지만, 기일 미정 물건 하나면 그 상태가 된다).
+  if (Number.isNaN(date.getTime())) return "미정";
   return new Intl.DateTimeFormat("ko-KR", {
     month: "long",
     day: "numeric"
-  }).format(new Date(value));
+  }).format(date);
 }

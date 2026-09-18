@@ -2942,3 +2942,221 @@ select:focus-visible {
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   상세 패널 재구성 (2026-09-18)
+   스티키 상단 바 · 근거 줄(detail-stat small) · 접이식 참고 자료
+
+   파일 맨 끝에 한 덩어리로 모아 둔다. 같은 셀렉터가 위쪽과 미디어쿼리에 나뉘어
+   있는 파일이라, 기존 목록 중간에 규칙을 끼워 넣으면 .tag.good 때처럼 회귀가 난다.
+   여기 있는 것은 전부 "나중에 오는 규칙이 이긴다"에 기대는 덧칠이다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 닫는 방법과 "무엇을 보고 있는지"는 스크롤을 따라 올라가면 안 된다.
+   패널의 padding(20px) 위로 걸치도록 음수 마진을 주고 그만큼 자기 패딩으로 되돌린다.
+   반투명 --panel 을 쓰면 아래 글자가 비쳐 지나가므로 불투명한 --surface 를 쓴다. */
+.detail-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  margin: -20px -20px 0;
+  padding: 14px 20px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.detail-panel.scrolled .detail-topbar {
+  border-bottom-color: var(--line);
+  box-shadow: 0 6px 16px rgba(33, 30, 27, 0.06);
+}
+
+.topbar-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 제목과 가격 요약은 스크롤을 내렸을 때만 나온다. 맨 위에서는 바로 아래 헤더가
+   같은 말을 더 크게 하고 있어서, 늘 띄우면 같은 문장이 두 줄 연속으로 나온다. */
+.detail-topbar-brief {
+  display: none;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.detail-panel.scrolled .detail-topbar-brief {
+  display: flex;
+}
+
+.detail-topbar-brief span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-topbar-brief strong {
+  flex: 0 0 auto;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  font-variation-settings: "wdth" 110;
+  letter-spacing: -0.03em;
+}
+
+.back-button.icon-only {
+  flex: 0 0 auto;
+  width: 34px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* 제목 밑 스펙 한 줄 — 면적 · 준공 · 구조 · 매각형태 */
+.detail-specs {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+}
+
+/* 숫자 타일의 근거 줄. 공시기준가의 근거(공동주택가격·연도·호수)와 실거래 추정가의
+   표본 수는 예전에 각각 제 몫의 타일을 차지했다. 값 자리에 "2026년"이 큼직하게
+   박힌 타일이 세 개까지 붙어서, 숫자 칸이 근거 표시로 넘쳤다. */
+.detail-stat {
+  align-content: start;
+  gap: 5px;
+  min-height: 84px;
+}
+
+.detail-stat small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 접이식 참고 자료. <details>를 쓰는 이유는 빌드 도구가 없어서다 —
+   키보드·스크린리더 동작을 직접 짜지 않아도 브라우저가 해 준다. */
+.detail-fold {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.detail-fold > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 750;
+  list-style: none;
+}
+
+.detail-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.detail-fold > summary::after {
+  content: "펼치기 ▾";
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.detail-fold[open] > summary::after {
+  content: "접기 ▴";
+}
+
+.detail-fold[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-fold > summary small {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-fold > summary:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.detail-fold-body {
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+}
+
+/* 임대차 섹션 머리의 보증금 합계 — 본문 글씨지만 금액만 먹빛으로 세운다. */
+.detail-section .address strong {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+@media (max-width: 720px) {
+  /* 모바일 패널 패딩은 14px이라 음수 마진도 그만큼이어야 한다. 20px 그대로 두면
+     상단 바가 패널 밖으로 6px 삐져나가 좌우가 잘린다. */
+  .detail-topbar {
+    margin: -14px -14px 0;
+    padding: 12px 14px 10px;
+  }
+
+  /* 한 줄에 하나뿐인 타일이 84px씩 쌓이면 숫자 여섯 개가 한 화면을 다 먹는다.
+     폰에서는 두 칸으로 되돌린다 — 값이 짧아(D-18, 719만, 97%) 두 칸에 들어간다. */
+  .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-stat strong {
+    font-size: 17px;
+  }
+}
+
+/* 종별을 모르는 물건(공매 50건 중 45건이 categorySub "unknown")은 주소가 곧 제목이다.
+   24px/850 그대로 두면 폰에서 제목만 세 줄이 된다. */
+.detail-header.address-title h2 {
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  /* 사진 스트립은 패널 패딩 밖까지 꽉 차게 나가려고 음수 마진을 쓴다. 그 값이 데스크톱
+     패딩(20px)에 맞춰 박혀 있어서, 패딩이 14px인 폰에서는 좌우로 6px씩 삐져나갔다.
+     그것 하나 때문에 패널 전체에 가로 스크롤이 생겨 있었다(scrollWidth 381 / 375). */
+  .detail-photos {
+    margin: -4px -14px 0;
+    padding: 4px 14px 8px;
+  }
+}
