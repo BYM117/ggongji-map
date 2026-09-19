@@ -3160,3 +3160,115 @@ select:focus-visible {
     padding: 4px 14px 8px;
   }
 }
+
+/* ── 문서 본문 뷰어 (2026-09-19) ──────────────────────────────────────────────
+   매각물건명세서·현황조사서는 이제 본문을 앱 안에서 읽는다. 사진 뷰어(.photo-viewer)와
+   같은 오버레이 자리를 쓰지만, 길게 읽는 것이라 시트를 두고 그 안에서만 스크롤한다. */
+.doc-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(20, 22, 26, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: photo-fade 0.18s ease;
+}
+
+.doc-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(720px, 100%);
+  max-height: min(820px, 100%);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.doc-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.doc-sheet-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.doc-sheet-head strong {
+  font-size: 15px;
+  font-weight: 780;
+}
+
+.doc-sheet-close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* 원문 줄바꿈이 곧 문서의 구조다(표 행·항목 구분). pre-wrap으로 그대로 살린다. */
+.doc-sheet-body {
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  font-size: 13.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* 본문은 사용자가 긁어서 옮겨 적는 일이 많다. 선택을 막지 않는다. */
+  user-select: text;
+}
+
+.doc-sheet-foot {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+}
+
+.doc-sheet-foot a {
+  color: #2368c7;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* "본문 보기"는 .doc-link 모양을 그대로 쓰되 button 태그라 기본값을 지워 준다. */
+button.doc-link {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+@media (max-width: 720px) {
+  .doc-viewer {
+    padding: 0;
+    place-items: end stretch;
+  }
+
+  .doc-sheet {
+    width: 100%;
+    max-height: 88dvh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .doc-sheet-body {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -1658,10 +1658,11 @@ function closeDetailPanel() {
 // 같이 스크롤돼 올라가 버려서, 아래로 내려간 상태에서는 패널을 닫을 방법이 없었다.
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  // 사진 확대 뷰어가 떠 있으면 그것부터 닫는다. 한 번에 둘 다 닫으면 읽던 상세를 잃는다.
-  const viewer = document.querySelector(".photo-viewer");
-  if (viewer) {
-    viewer.remove();
+  // 위에 덮인 것부터 하나씩 닫는다. 한 번에 둘 다 닫으면 읽던 상세를 잃는다.
+  // 나중에 붙은 것이 위에 있으므로 마지막 것을 집는다.
+  const overlays = document.querySelectorAll(".doc-viewer, .photo-viewer");
+  if (overlays.length) {
+    overlays[overlays.length - 1].remove();
     return;
   }
   if (state.detailOpen) closeDetailPanel();
@@ -2817,6 +2818,7 @@ function renderPropertyDetail(item) {
 
   document.querySelector("#closeDetailPanel")?.addEventListener("click", closeDetailPanel);
   bindPhotoViewer();
+  bindDocViewer();
 }
 
 // 스크롤해도 남아야 하는 것: 닫는 방법과 "지금 보고 있는 게 무엇인지".
@@ -3394,8 +3396,48 @@ function courtRiskSections(detail) {
       </section>`);
   }
 
+  // 매각물건명세서는 "무엇이 인수되는가"를 법원이 직접 적어 놓은 문서다. 현황조사서는
+  // 누가 살고 있는지를 적는다. 둘 다 이 묶음이 다루는 바로 그 내용이라 참고 자료로
+  // 내려보내지 않는다 — 본문을 읽을 수 있게 해 놓고 접어 두면 읽을 수 없는 것과 같다.
+  sections.push(renderCourtDocuments(detail.documents));
+
   // 권리 체크 플래그는 "확인 항목" 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
   return sections;
+}
+
+function renderCourtDocuments(documents) {
+  const docs = documents || [];
+  if (!docs.length) return "";
+
+  return `
+    <section class="detail-section">
+      <h3>법원 문서</h3>
+      <div class="doc-list">
+        ${docs.map((doc, index) => renderCourtDocRow(doc, index)).join("")}
+      </div>
+    </section>`;
+}
+
+// 본문이 있으면 앱 안에서 펼쳐 읽고, 없으면 법원 사이트로 보낸다.
+//
+// 감정평가서는 실제로 PDF라 크롤러가 본문을 못 준다. 그 줄에까지 "본문 보기"를 달면
+// 눌렀을 때 빈 창이 뜬다. 어느 쪽인지는 doc.body가 있느냐로 갈린다.
+function renderCourtDocRow(doc, index) {
+  const hasBody = Boolean(doc.body);
+  return `
+    <div class="doc-row">
+      <div>
+        <strong>${escapeHtml(doc.type)}</strong>
+        <p class="doc-preview">${hasBody ? `${escapeHtml(doc.preview)}…` : "본문이 PDF라 여기서는 못 읽습니다. 법원 사이트에서 열람하세요."}</p>
+      </div>
+      ${
+        hasBody
+          ? `<button class="doc-link" type="button" data-doc="${index}">본문 보기</button>`
+          : doc.sourceUrl
+            ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>`
+            : ""
+      }
+    </div>`;
 }
 
 function courtSubjectSections(detail) {
@@ -3413,28 +3455,6 @@ function courtReferenceSections(detail) {
   const sections = [];
 
   if (!molitMatched(detail.transactions)) sections.push(renderMolitTransactions(detail.transactions));
-
-  const documents = detail.documents || [];
-  if (documents.length) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>법원 문서</h3>
-        <div class="doc-list">
-          ${documents
-            .map(
-              (doc) => `
-            <div class="doc-row">
-              <div>
-                <strong>${escapeHtml(doc.type)}</strong>
-                ${doc.preview ? `<p class="doc-preview">${escapeHtml(doc.preview.slice(0, 140))}…</p>` : ""}
-              </div>
-              ${doc.sourceUrl ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문</a>` : ""}
-            </div>`
-            )
-            .join("")}
-        </div>
-      </section>`);
-  }
 
   const caseRows = pickCaseRows(detail.caseTables);
   if (caseRows.length) {
@@ -3620,6 +3640,44 @@ function pickCaseRows(tables) {
   });
 
   return picked;
+}
+
+// 문서 본문 뷰어. 사진 뷰어와 같은 오버레이 자리를 쓰지만 성격이 다르다 — 사진은
+// 한눈에 보고 닫는 것이고 문서는 길게 읽는 것이라, 자기 스크롤과 닫기 버튼을 갖는다.
+// 바깥을 누르면 닫히되 본문 안을 누르면 닫히지 않는다: 글을 드래그해 읽다가
+// 창이 사라지면 안 된다(사진 뷰어는 아무 데나 눌러도 닫히는 게 맞아서 그대로 뒀다).
+function bindDocViewer() {
+  const documents = (state.detailData && state.detailData.documents) || [];
+  dom.detail.querySelectorAll("[data-doc]").forEach((button) => {
+    button.addEventListener("click", () => openDocViewer(documents[Number(button.dataset.doc)]));
+  });
+}
+
+function openDocViewer(doc) {
+  if (!doc || !doc.body) return;
+  document.querySelector(".doc-viewer")?.remove();
+
+  const collected = formatCollectedAt(doc.collectedAt);
+  const viewer = document.createElement("div");
+  viewer.className = "doc-viewer";
+  viewer.innerHTML = `
+    <article class="doc-sheet" role="dialog" aria-modal="true" aria-label="${escapeHtml(doc.type)} 본문">
+      <header class="doc-sheet-head">
+        <div>
+          <strong>${escapeHtml(doc.type)}</strong>
+          ${collected ? `<span class="case-no">${escapeHtml(collected)}</span>` : ""}
+        </div>
+        <button type="button" class="doc-sheet-close" aria-label="닫기">✕</button>
+      </header>
+      <div class="doc-sheet-body">${escapeHtml(doc.body)}</div>
+      ${doc.sourceUrl ? `<footer class="doc-sheet-foot"><a href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">법원경매정보에서 원문 보기 ↗</a></footer>` : ""}
+    </article>`;
+
+  viewer.addEventListener("click", (event) => {
+    if (event.target === viewer || event.target.closest(".doc-sheet-close")) viewer.remove();
+  });
+  document.body.append(viewer);
+  viewer.querySelector(".doc-sheet-close")?.focus();
 }
 
 // 사진 클릭 시 원본 크기로 확대
