@@ -1193,7 +1193,10 @@ function enrichProperty(item) {
   const marketValue = medianDeal * comparableArea(item);
   const officialDiscount = officialBasis.comparable ? ratioDiscount(item.minBid, officialValue) : 0;
   const marketDiscount = ratioDiscount(item.minBid, marketValue);
-  const failBonus = Math.min(item.failCount * 4, 12);
+  // 유찰 횟수를 모르는 물건(공매 목록)은 가산도 감점도 하지 않는다. null이 그대로
+  // 곱해지면 NaN이 나와 점수 전체가 무너지므로 여기서 숫자로 확정한다.
+  const fails = Number.isFinite(Number(item.failCount)) ? Number(item.failCount) : 0;
+  const failBonus = Math.min(fails * 4, 12);
   const riskPenalty = riskOrder[item.risk] * 8;
   const officialWeight = officialBasis.comparable ? 55 : 0;
   const marketWeight = officialBasis.comparable ? 35 : 55;
@@ -2933,12 +2936,12 @@ function renderDetailNumbers(item, detail) {
   const appraisal = Number(item.appraisal) || 0;
   const minBid = Number(item.minBid) || 0;
   const bidRatio = appraisal > 0 && minBid > 0 ? Math.max(1, Math.round((minBid / appraisal) * 100)) : null;
-  const fails = Number(item.failCount) || 0;
+  const fails = failCountOf(item, detail);
 
   return `
     <section class="detail-grid" aria-label="상세 수치">
       ${detailStat("입찰까지", formatDday(item.bidDate), "", formatDate(item.bidDate))}
-      ${detailStat("최저입찰가", formatWon(minBid), "", fails > 0 ? `${fails}회 유찰` : "신건")}
+      ${detailStat("최저입찰가", formatWon(minBid), "", failCountLabel(fails))}
       ${appraisal > 0 ? detailStat("감정가", formatWon(appraisal), "", "1회차 최저가") : ""}
       ${bidRatio !== null ? detailStat("감정가 대비", `${bidRatio}%`, "", "최저가율") : ""}
       ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral", officialBasisNote(item))}
@@ -3733,12 +3736,14 @@ function mergeChecks(item, detail) {
 // 냄새 ⑥의 잔재였다. 판정 근거는 출처를 가리지 않는 것부터 쌓는다.
 function renderVerdict(item, detail) {
   const reasons = [];
-  const fails = Number(item.failCount) || 0;
+  const fails = failCountOf(item, detail);
   const minBid = Number(item.minBid) || 0;
   const appraisal = Number(item.appraisal) || 0;
   const ratio = residualRatio(item);
 
-  if (fails >= 5) reasons.push(`${fails}회 유찰`);
+  // 모르는 물건은 조용히 넘어간다. 여기서 0으로 읽던 시절에는 공매가 아무리 많이
+  // 떨어져도 이 줄이 뜨지 않았다 — 아래 하락 폭 줄이 그 공백을 메우고 있었을 뿐이다.
+  if (fails.known && fails.count >= 5) reasons.push(failCountLabel(fails));
 
   // 하락 폭은 감정가 기준으로 먼저 말한다. 경매판이 실제로 쓰는 분모이고, 공시기준가가
   // 아직 안 붙은 물건(공매 다수)에서도 값이 있다.
@@ -3937,14 +3942,42 @@ function fillGauge(node, item) {
   row.querySelector(".gauge-label").textContent = `잔존 ${percent}%`;
 }
 
+// 유찰 횟수는 "모른다"가 있는 값이다. 공매(온비드) 목록은 유찰 횟수를 아예 주지 않아서
+// item.failCount가 null로 온다. 이걸 `Number(x) || 0`으로 읽으면 "모른다"가 "0회"가 되어,
+// 감정가의 10%까지 내려온 물건이 화면에서 신건으로 보인다. 그래서 세 상태를 구분한다.
+//
+// 상세가 와 있으면 회차표에서 센 값(최소 N회)이 우선이다 — 목록이 못 주는 유일한 근거다.
+// 그 계산의 주인은 lib/onbid-detail.mjs이고 여기서 다시 세지 않는다.
+function failCountOf(item, detail) {
+  const derived = detail && detail.failCount;
+  if (derived && Number.isFinite(derived.atLeast)) {
+    return { count: derived.atLeast, known: true, atLeastOnly: true };
+  }
+  const raw = item && item.failCount;
+  if (raw === null || raw === undefined || !Number.isFinite(Number(raw))) {
+    return { count: null, known: false, atLeastOnly: false };
+  }
+  return { count: Number(raw), known: true, atLeastOnly: false };
+}
+
+// 같은 문구를 네 자리가 쓰므로 한 곳에서 만든다. "최소"가 붙고 안 붙고가 곧 근거의 세기다.
+function failCountLabel(fails) {
+  if (!fails.known) return "유찰 확인 필요";
+  if (fails.count <= 0) return fails.atLeastOnly ? "이번 공고 유찰 없음" : "신건";
+  return `${fails.atLeastOnly ? "최소 " : ""}${fails.count}회 유찰`;
+}
+
 // 유찰 도트 — 개수 자체가 신호다. 색 없이도 "17번 아무도 안 받았다"가 먼저 읽힌다.
 function fillFailDots(node, item) {
   const row = node.querySelector(".fail-row");
   if (!row) return;
-  const count = Number(item.failCount) || 0;
-  if (count < 1) {
+  // 목록 카드에는 상세가 없다. 공매는 여기서 유찰 횟수를 알 수 없고, 그 사실을 적는다.
+  // 빈칸으로 두면 "유찰 없음"으로 읽힌다.
+  const fails = failCountOf(item, null);
+  const count = fails.count;
+  if (!fails.known || count < 1) {
     row.classList.remove("heavy");
-    row.innerHTML = `<span class="fail-label">신건</span>`;
+    row.innerHTML = `<span class="fail-label">${failCountLabel(fails)}</span>`;
     return;
   }
   const shown = Math.min(count, MAX_FAIL_DOTS);
