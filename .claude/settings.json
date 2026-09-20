@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "OUT=$(bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/세션점검.sh\" 2>&1); jq -n --arg c \"$OUT\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$c}}'",
+            "timeout": 30,
+            "statusMessage": "다른 세션이 무엇을 하고 있나 확인하는 중"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "N=$(git -C \"${CLAUDE_PROJECT_DIR:-.}\" status --porcelain 2>/dev/null | wc -l | tr -d ' '); if [ \"$N\" != \"0\" ]; then jq -n --arg n \"$N\" '{systemMessage:(\"⚠️ 커밋 안 된 변경 \" + $n + \"개를 남기고 세션이 끝난다. CLAUDE.md 규칙 2 — 커밋하고 나간다.\")}'; fi",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
