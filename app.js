@@ -3751,6 +3751,12 @@ function renderVerdict(item, detail) {
 
   if (isShareSale(item, detail)) reasons.push("지분 매각");
 
+  // 매각물건명세서가 "매각으로 소멸되지 아니한다"고 적어 놓은 권리. 낙찰가에 그대로
+  // 얹히는 돈이라 유찰 횟수보다 먼저 말해야 한다. 경매 물건에는 공매 같은 임대차 배열이
+  // 없어서, 이 신호를 넣기 전에는 인수 위험이 배너에 한 번도 나타나지 않았다.
+  const carryOver = (detail && detail.carryOver) || null;
+  if (carryOver && carryOver.state === "carried") reasons.push("인수되는 권리 있음");
+
   // 보증금은 낙찰가에 얹히는 돈이다. 최저가에 견줘 무시 못 할 크기면 먼저 말한다.
   const deposit = tenantDepositTotal(detail);
   const depositHeavy = deposit > 0 && (minBid <= 0 || deposit >= minBid * 0.2);
@@ -3761,9 +3767,12 @@ function renderVerdict(item, detail) {
   // 372건이 "위험 높음" 때문이었다 — 배너가 배지를 한 번 더 읽어 주는 줄이었던 셈이다.
   if (!reasons.length) return "";
 
-  const advice = depositHeavy
-    ? "보증금이 배분되는지부터 확인하세요."
-    : "할인율이 아니라 유찰 사유부터 확인하세요.";
+  // 조언은 가장 비싼 사유를 가리킨다. 인수 조항이 있으면 그것이 곧 추가 매수대금이다.
+  const advice = carryOver && carryOver.state === "carried"
+    ? "매각물건명세서의 인수 조항부터 읽으세요."
+    : depositHeavy
+      ? "보증금이 배분되는지부터 확인하세요."
+      : "할인율이 아니라 유찰 사유부터 확인하세요.";
 
   return `
     <div class="verdict">
