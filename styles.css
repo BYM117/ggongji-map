@@ -3332,3 +3332,50 @@ select:focus-visible {
     font-size: 20px;
   }
 }
+
+/* ── 지도 종별 범례 ──
+   색은 app.js의 CATEGORY_MARKER_COLORS가 유일한 정의다. 여기에 색을 적지 않는다 —
+   두 곳에 적으면 한쪽만 바뀌어 지도와 범례가 다른 말을 하게 된다.
+   지도 좌하단에 두는 이유: 네이버 로고와 축척이 우하단을 쓰고, 좌상단은 검색바가 쓴다. */
+.map-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-width: calc(100% - 140px);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 244, 241, 0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 1px 4px rgba(33, 30, 27, 0.14);
+  font-size: 10.5px;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.map-legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.map-legend .legend-item i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 244, 241, 0.9);
+  box-shadow: 0 0 0 1px rgba(33, 30, 27, 0.18);
+}
+
+/* 좁은 화면에서는 지도를 가리느니 범례를 접는다. 색은 상세를 열면 글자로도 나온다. */
+@media (max-width: 1040px) {
+  .map-legend {
+    display: none;
+  }
+}

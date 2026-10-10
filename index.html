@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
-    <link rel="stylesheet" href="./styles.css?v=20261010-marker" />
+    <link rel="stylesheet" href="./styles.css?v=20261010-cat" />
   </head>
   <body>
     <main class="app-shell">
@@ -105,6 +105,7 @@
               <span>네이버 지도 키를 적용하면 실제 지도로 전환됩니다.</span>
             </div>
           </div>
+          <div class="map-legend" id="mapLegend" aria-label="물건 종별 색 범례"></div>
         </div>
       </section>
 
@@ -138,9 +139,9 @@
     </template>
 
     <script type="module">
-      import * as categories from "./categories.js?v=20261010-marker";
+      import * as categories from "./categories.js?v=20261010-cat";
       window.GGONGJI_CATEGORIES = categories;
     </script>
-    <script src="./app.js?v=20261010-marker" defer></script>
+    <script src="./app.js?v=20261010-cat" defer></script>
   </body>
 </html>

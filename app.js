@@ -96,6 +96,25 @@ const state = {
 };
 
 const riskOrder = { 낮음: 1, 보통: 2, 높음: 3 };
+// 종별 색. 여기가 유일한 정의다 — CSS에도 적지 않고, 범례도 이 표에서 그린다.
+// 두 곳에 적으면 한쪽만 바뀌어 지도와 범례가 다른 말을 하게 된다.
+//
+// 규칙 둘:
+// 1) 따뜻한 색은 쓰지 않는다. 임박 링(--signal 오렌지)과 섞이면 방금 되찾은 신호가 또 죽는다.
+// 2) 전부 크림색 글자(#f5f4f1)가 올라가므로 대비 4.5:1을 넘겨야 한다. 아래는 5.3~7.9:1.
+const CATEGORY_MARKER_COLORS = {
+  residential: "#3e4c5e", // 슬레이트 블루
+  commercial: "#1f6f6b", // 딥 틸
+  industrial: "#5a4b86", // 인디고
+  land: "#386e46", // 포레스트 그린
+  etc: "#5b5b5f" // 그래파이트
+};
+const MARKER_INK = "#211e1b";
+// ⚠️ 이 표는 반드시 init() 호출(아래 몇 줄 밑)보다 **위**에 있어야 한다.
+// app.js는 상단에서 init()을 바로 부르기 때문에, 그 아래에 const를 선언하면
+// 렌더가 그 값을 읽는 순간 TDZ에 걸려 앱 전체가 죽는다. 같은 함정에 두 번 걸렸다
+// (SHEET_STATES, CATEGORY_MARKER_COLORS). 모듈 스코프 const는 여기 모아 둔다.
+
 const riskClass = { 낮음: "low", 보통: "mid", 높음: "high" };
 
 const dom = {
@@ -128,6 +147,7 @@ window.navermap_authFailure = handleNaverAuthFailure;
 init();
 
 function init() {
+  renderMapLegend();
   populateFilters();
   setupOfficialRange();
   bindEvents();
@@ -2740,8 +2760,25 @@ function markerIconSize(item, mode) {
 
 function markerColor(item, kind, isCluster) {
   // 점수를 색으로 등급 매기면 목록에서 고친 오독이 지도에서 그대로 되살아난다.
-  // 마커는 먹빛 하나로 통일하고, 오렌지는 입찰이 임박한 물건에만 쓴다.
-  return "#211e1b";
+  // 색은 "좋고 나쁨"이 아니라 "무엇인지"에만 쓴다 — 종별은 등급이 아니라 분류다.
+  //
+  // 묶음·집계 마커는 여러 종별이 섞여 있어 대표 색을 고를 수 없다. 먹빛으로 둔다.
+  // 하나를 골라 칠하면 그 안에 없는 종별까지 그 색으로 세게 된다.
+  if (isCluster) return MARKER_INK;
+  return CATEGORY_MARKER_COLORS[item?.categoryGroup] || MARKER_INK;
+}
+
+// 색을 쓰면 범례가 없이는 뜻이 없다. 종별 칸은 드롭다운이라 색을 보여줄 자리가 없어
+// 지도 위에 따로 둔다. 라벨은 categories.js에서 가져온다 — 분류의 주인은 거기다.
+function renderMapLegend() {
+  const box = document.querySelector("#mapLegend");
+  const taxonomy = window.GGONGJI_CATEGORIES;
+  if (!box || !taxonomy) return;
+  box.innerHTML = taxonomy.CATEGORY_GROUPS.map((group) => {
+    const color = CATEGORY_MARKER_COLORS[group.id];
+    if (!color) return "";
+    return `<span class="legend-item"><i style="background:${color}"></i>${escapeHtml(group.label)}</span>`;
+  }).join("");
 }
 
 // 임박 여부는 색상값이 아니라 클래스로 넘긴다. 배경만 오렌지로 바꾸고 글자는 먹빛으로
