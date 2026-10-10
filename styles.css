@@ -2817,31 +2817,32 @@ select:focus-visible {
 
 /* 임박 마커: 배경만 오렌지로 바꾸고 글자는 먹빛으로 뒤집는다.
    오렌지 위 흰 글씨는 3.3:1밖에 안 나와서 지도 위에서 특히 안 읽힌다. */
+/* 임박 마커: 채워서 말하지 않고 링으로 말한다.
+   채우면 임박 물건이 많은 날 지도의 3분의 1이 오렌지가 된다(2026-10-10 실측:
+   마커 97개 중 31개). 그만큼 깔리면 신호가 아니라 배경이다. 링은 같은 개수가 떠도
+   면적이 10분의 1이라 "몇 개"로 세어지고, 채움은 "얼마나 넓은지"로 뭉뚱그려 읽힌다.
+   마커 본체는 먹빛 그대로 둬야 밝은 네이버 지도 위에서 글자가 읽힌다.
+   (`.cluster-marker.is-urgent`는 뺐다 — markerContent가 묶음 마커에는
+   urgent 클래스를 붙이지 않아 한 번도 적용된 적이 없는 선택자였다.) */
 .auction-marker.is-urgent,
 .fallback-marker.is-urgent,
-.dot-marker.is-urgent,
-.dot-marker.is-urgent strong,
-.cluster-marker.is-urgent {
-  border-color: var(--signal);
-  background: var(--signal);
-  color: #211e1b;
+.dot-marker.is-urgent {
+  box-shadow:
+    0 0 0 2px var(--signal),
+    0 2px 6px rgba(33, 30, 27, 0.3);
 }
 
-.auction-marker.is-urgent strong,
-.fallback-marker.is-urgent strong,
-.dot-marker.is-urgent strong {
-  color: #211e1b;
-}
-
-.auction-marker.is-urgent small,
-.auction-marker.is-urgent .auction-marker-source,
-.fallback-marker.is-urgent small {
-  color: rgba(33, 30, 27, 0.68);
-}
-
-.auction-marker.is-urgent::after,
-.fallback-marker.is-urgent::after {
-  background: var(--signal);
+/* 선택은 임박보다 강한 상태다. 이 규칙이 위의 임박 링보다 **뒤에** 있어야 한다 —
+   둘 다 (0,2,0)이라 순서로 갈린다. 앞에 두면 임박한 물건을 골랐을 때
+   선택 표시가 임박 링에 먹혀 어느 것을 눌렀는지 알 수 없게 된다. */
+.auction-marker.active,
+.dot-marker.active,
+.auction-marker.is-urgent.active,
+.dot-marker.is-urgent.active {
+  box-shadow:
+    0 0 0 3px var(--signal),
+    0 0 0 5px rgba(238, 90, 14, 0.28),
+    0 2px 8px rgba(33, 30, 27, 0.3);
 }
 
 /* ── 요약 지표: 4자리 숫자에서 "1,2..."로 잘리던 문제 ──

@@ -2752,10 +2752,16 @@ function markerUrgentClass(item) {
 }
 
 function markerLabelHtml(item) {
+  // 가격만 찍으면 싼지를 말하지 않는다. 1,512만이 싼 값인지는 공시기준가를 봐야 아는데
+  // 지도에는 그게 없었다. 이 도구의 축이 공시기준 할인율 하나뿐이니 지도도 그걸 말해야 한다.
+  // 공시가를 아직 못 구한 물건만 입찰일로 대체한다 — 빈칸보다는 일정이라도 쥐여 준다.
+  const sub = item.officialComparable
+    ? formatSignedPercent(item.officialDiscount)
+    : formatMarkerDate(item.bidDate);
   return `
     <span class="auction-marker-source">${escapeHtml(sourceShortLabel(item))}</span>
     <strong>${escapeHtml(formatMarkerBid(item.minBid))}</strong>
-    <small>${escapeHtml(formatMarkerDate(item.bidDate))}</small>
+    <small>${escapeHtml(sub)}</small>
     <i aria-hidden="true"></i>
   `;
 }
