@@ -158,7 +158,11 @@ async function handleApi(url, response) {
         sendJson(response, 503, { ok: false, error: "missing_naver_maps_client_id" });
         return;
       }
-      sendJson(response, 200, { ok: true, naverMapsClientId });
+      // 경매지(법원경매 리포트) 주소는 코드에 박지 않는다. 아직 vercel.app 임시 주소이고
+      // 한 달 안에 도메인을 입힐 예정이라, 그때 환경변수 하나만 바꾸면 되게 둔다.
+      // 값이 없으면 화면이 퍼널 링크를 아예 그리지 않는다(깨진 링크보다 없는 편이 낫다).
+      const reportBaseUrl = String(process.env.AUCTION_REPORT_URL || "").trim().replace(/\/$/, "");
+      sendJson(response, 200, { ok: true, naverMapsClientId, reportBaseUrl });
       return;
     }
 

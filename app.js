@@ -68,6 +68,9 @@ const state = {
   detailOpen: false,
   detailData: null,
   detailLoadingId: "",
+  // 경매지(법원경매 리포트) 주소. /api/client-config 가 환경변수에서 실어 준다.
+  // 비어 있으면 퍼널 링크를 그리지 않는다 — 깨진 링크보다 없는 편이 낫다.
+  reportBaseUrl: "",
   hasUserMovedMap: false,
   isProgrammaticMove: false,
   mapBootTimer: null,
@@ -133,6 +136,25 @@ function init() {
   reloadNaverMapScript();
   startMapWatchdog();
   hydrateExternalProperties();
+  loadReportBaseUrl();
+}
+
+// 경매지 주소를 한 번 받아 둔다. 지도 로더도 같은 응답을 쓰지만, 키가 이미 잡혀 있으면
+// 그 fetch를 건너뛰기 때문에 상세 패널이 주소를 못 받는 경우가 생긴다. 지도와 무관하게
+// 가져와야 지도가 안 떠도 퍼널 링크가 산다.
+async function loadReportBaseUrl() {
+  if (state.reportBaseUrl) return;
+  try {
+    const response = await fetch("/api/client-config", { cache: "no-store" });
+    const payload = response.ok ? await response.json() : null;
+    if (payload && payload.ok && payload.reportBaseUrl) {
+      state.reportBaseUrl = payload.reportBaseUrl;
+      // 상세가 이미 열려 있으면 링크가 빠진 채로 그려져 있다. 다시 그린다.
+      if (state.detailOpen) render();
+    }
+  } catch (error) {
+    console.warn("Failed to load report base url", error);
+  }
 }
 
 // ── 모바일 바텀 시트 ──
@@ -1661,11 +1683,10 @@ function closeDetailPanel() {
 // 같이 스크롤돼 올라가 버려서, 아래로 내려간 상태에서는 패널을 닫을 방법이 없었다.
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  // 위에 덮인 것부터 하나씩 닫는다. 한 번에 둘 다 닫으면 읽던 상세를 잃는다.
-  // 나중에 붙은 것이 위에 있으므로 마지막 것을 집는다.
-  const overlays = document.querySelectorAll(".doc-viewer, .photo-viewer");
-  if (overlays.length) {
-    overlays[overlays.length - 1].remove();
+  // 사진 확대 뷰어가 떠 있으면 그것부터 닫는다. 한 번에 둘 다 닫으면 읽던 상세를 잃는다.
+  const viewer = document.querySelector(".photo-viewer");
+  if (viewer) {
+    viewer.remove();
     return;
   }
   if (state.detailOpen) closeDetailPanel();
@@ -1951,6 +1972,7 @@ async function reloadNaverMapScript() {
         throw new Error("NAVER_MAPS_CLIENT_ID is not configured");
       }
       naverMapsClientId = payload.naverMapsClientId;
+      if (payload.reportBaseUrl) state.reportBaseUrl = payload.reportBaseUrl;
     }
   } catch (error) {
     state.naverScriptLoading = false;
@@ -2807,7 +2829,7 @@ function renderPropertyDetail(item) {
     ${renderDetailHeader(item, detail)}
     ${renderDetailNumbers(item, detail)}
     ${renderRiskGroup(item, detail, loading)}
-    ${renderSubjectGroup(item, detail, loading)}
+    ${renderPriceLadder(item, detail)}
     ${renderReferenceGroup(item, detail, loading)}
     ${renderSourceRow(item, detail)}
   `;
@@ -2821,7 +2843,6 @@ function renderPropertyDetail(item) {
 
   document.querySelector("#closeDetailPanel")?.addEventListener("click", closeDetailPanel);
   bindPhotoViewer();
-  bindDocViewer();
 }
 
 // 스크롤해도 남아야 하는 것: 닫는 방법과 "지금 보고 있는 게 무엇인지".
@@ -2884,7 +2905,10 @@ function renderDetailHeader(item, detail) {
 function detailSpecs(item, detail) {
   const specs = [];
   const area = detailAreaSqm(item, detail);
-  if (area > 0) specs.push(`${stripZero(area)}㎡ · ${stripZero(area / 3.305785)}평`);
+  // 평 환산은 크롤러가 해서 보낸다(area.totalPyeong). 여기서 3.305785로 또 나누면
+  // 같은 규칙이 두 곳에 생긴다 — 값이 어긋나기 시작하면 어느 쪽이 맞는지 알 수 없다.
+  const pyeong = Number(detail && detail.area && detail.area.totalPyeong) || 0;
+  if (area > 0) specs.push(`${stripZero(area)}㎡${pyeong > 0 ? ` · ${stripZero(pyeong)}평` : ""}`);
 
   const building = (detail && detail.building) || null;
   const builtYear = String((building && building.use_apr_day) || "").slice(0, 4);
@@ -2898,6 +2922,10 @@ function detailSpecs(item, detail) {
 
   const saleForm = window.GGONGJI_CATEGORIES && item.saleForm ? window.GGONGJI_CATEGORIES.saleFormLabel(item.saleForm) : "";
   if (saleForm && saleForm !== "기타") specs.push(saleForm);
+
+  // 용도지역은 토지·상가에서 값을 좌우하는 값인데 그동안 payload에 있으면서 안 썼다.
+  const zone = (detail && detail.landUse && detail.landUse.zone) || "";
+  if (zone) specs.push(zone);
 
   // 공매 집합건물은 전유면적과 대지지분이 따로 온다. 대지지분은 지분 매각 여부를
   // 가늠하는 값이라 전유면적에 묻히면 안 된다.
@@ -2929,25 +2957,199 @@ function onbidAreaOf(detail, keyword) {
   return match ? Number(match[0]) || 0 : 0;
 }
 
-// 숫자 칸. 경매판의 기본 분모는 감정가인데, item.appraisal은 833건 전부에 실려 오면서도
-// app.js 어디에서도 쓰인 적이 없었다(grep 0건). 그 자리에 "-97%"(공시 대비)와
-// "-97%"(실거래 대비)가 나란히 있어서, 같은 크기의 같은 숫자 두 개가 서로 다른 뜻이었다.
+// 숫자 칸. 핀을 누른 사람이 1초 안에 답을 받아야 하는 것만 남긴다 —
+// 얼마냐 / 싼 거 맞냐 / 언제냐 / 얼마 들고 가냐.
+//
+// 감정가·평당가 타일을 뺐다. 비교에는 쓸모가 있지만 "넘길까 말까"를 정하는 질문이
+// 아니고, 네 칸이 넘어가면 어느 숫자를 봐야 할지가 흐려진다. 감정가 대비는 최저입찰가
+// 밑줄로 내려 보냈다.
 function renderDetailNumbers(item, detail) {
   const appraisal = Number(item.appraisal) || 0;
   const minBid = Number(item.minBid) || 0;
   const bidRatio = appraisal > 0 && minBid > 0 ? Math.max(1, Math.round((minBid / appraisal) * 100)) : null;
-  const fails = failCountOf(item, detail);
+  const deposit = (detail && detail.auction && detail.auction.deposit) || null;
+
+  // 공시기준가가 이 도구의 축이다. 다만 아직 못 붙인 물건이 있어서, 그때는 같은 자리에
+  // 감정가 대비를 세운다 — 큰 칸 하나가 "비교 보류"로 비어 있는 것보다 낫다.
+  const secondBig = item.officialComparable
+    ? detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item), `공시 ${formatOfficialValue(item)}`, true)
+    : bidRatio !== null
+      ? detailStat("감정가 대비", `${bidRatio}%`, "", `감정 ${formatWon(appraisal)}`, true)
+      : detailStat("공시기준 대비", "비교 보류", "neutral", item.officialMissingLabel || "", true);
 
   return `
     <section class="detail-grid" aria-label="상세 수치">
-      ${detailStat("입찰까지", formatDday(item.bidDate), "", formatDate(item.bidDate))}
-      ${detailStat("최저입찰가", formatWon(minBid), "", failCountLabel(fails))}
-      ${appraisal > 0 ? detailStat("감정가", formatWon(appraisal), "", "1회차 최저가") : ""}
-      ${bidRatio !== null ? detailStat("감정가 대비", `${bidRatio}%`, "", "최저가율") : ""}
-      ${detailStat("공시기준가", formatOfficialValue(item), item.officialComparable ? "" : "neutral", officialBasisNote(item))}
-      ${detailStat("공시기준 대비", formatOfficialDiscount(item), officialDiscountTone(item), residualNote(item))}
+      ${detailStat("최저입찰가", formatWon(minBid), "", bidRatio !== null ? `감정가의 ${bidRatio}%` : failCountLabel(failCountOf(item, detail)), true)}
+      ${secondBig}
+      ${detailStat("입찰일", formatDate(item.bidDate), "", formatDday(item.bidDate))}
+      ${deposit && deposit.amount
+        ? detailStat("입찰보증금", formatWon(deposit.amount), "", deposit.rate ? `최저가의 ${Math.round(deposit.rate * 100)}%` : "")
+        : detailStat("유찰", failCountLabel(failCountOf(item, detail)), "", item.officialComparable ? officialBasisNote(item) : "")}
     </section>`;
 }
+
+// ① 빠른 점검 — 이 패널의 핵심이자 퍼널 지점.
+//
+// "있다 / 없다 / 모른다"까지만 말하고, 무엇인지는 경매지(법원경매 리포트)로 보낸다.
+// 떠안는 권리가 임차권인지 가등기인지, 보증금이 얼마인지, 누가 언제 전입했는지는
+// 여기서 보여주지 않는다 — 그게 유료로 파는 것이기 때문이다.
+//
+// 깨끗한 물건은 ✓로 확실히 말해 준다. 전부 물음표로 가려 두면 무료 화면이 낚시가 되고,
+// ✓를 믿게 돼야 "!"가 떴을 때 눌러 볼 마음이 생긴다.
+function renderRiskGroup(item, detail, loading) {
+  if (loading && !detail) {
+    return `<section class="detail-section"><p class="address">권리 정보를 불러오는 중입니다…</p></section>`;
+  }
+
+  // 공매는 경매지가 다루지 않는다(법원경매 전용). 기존 권리 섹션을 그대로 쓴다.
+  if (sourceKind(item) === "onbid") {
+    const sections = onbidRiskSections(detail);
+    const checks = mergeChecks(item, detail);
+    if (checks.length) {
+      sections.push(`
+        <section class="detail-section">
+          <h3>확인 항목</h3>
+          <div class="tag-row">${checks.map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
+        </section>`);
+    }
+    return sections.filter(Boolean).join("");
+  }
+
+  const rights = (detail && detail.rights) || null;
+  const share = detail && detail.share && detail.share.isShareSale;
+  const facts = (detail && detail.appraisalFacts) || {};
+  const special = (detail && detail.auction && detail.auction.specialRights) || [];
+
+  const rows = [];
+
+  // 1. 낙찰가에 얹히는 권리
+  if (!rights) rows.push(checkRow("unknown", "권리 확인 안 됨", "문서를 아직 읽지 못했습니다"));
+  else if (rights.inheritedKinds.length || share) {
+    rows.push(checkRow("warn", share && !rights.inheritedKinds.length ? "지분 매각" : "인수되는 권리 있음", "낙찰가에 더 얹힐 수 있습니다"));
+  } else rows.push(checkRow("ok", "인수되는 권리 없음", "명세서에 기재 없음"));
+
+  // 2. 임차인 — 대항력이 있으면 보증금을 떠안는다
+  if (rights) {
+    if (rights.opposableTenantCount > 0) {
+      rows.push(checkRow("warn", `대항력 있는 임차인 ${rights.opposableTenantCount}명`, "보증금을 떠안을 수 있습니다"));
+    } else if (rights.tenantCount > 0) {
+      rows.push(checkRow("ok", `임차인 ${rights.tenantCount}명 · 대항력 없음`, "현재까지 조사된 기준"));
+    } else {
+      rows.push(checkRow("ok", "조사된 임차인 없음", ""));
+    }
+  }
+
+  // 3. 건물 자체의 문제 — 임차인 위험과 성격이 달라서 따로 센다
+  const buildingFlags = [];
+  if (facts["제시외물건"]) buildingFlags.push("제시외물건");
+  if (facts["공부와_차이"]) buildingFlags.push("공부 불일치");
+  if (special.includes("위반건축물")) buildingFlags.push("위반건축물");
+  if (rights && rights.hasLien) buildingFlags.push("유치권");
+  rows.push(buildingFlags.length
+    ? checkRow("warn", buildingFlags.join(" · "), "건물 자체에 문제가 있습니다")
+    : checkRow("ok", "건물 특이사항 없음", "제시외물건 · 공부 불일치 없음"));
+
+  // 4. 점유관계 — 통과/실패가 아니라 사실이다. 초록 체크를 주면 "안전하다"로 읽힌다.
+  const occupancy = (rights && rights.occupancy) || "";
+  if (!occupancy || /미상/.test(occupancy)) {
+    rows.push(checkRow("unknown", "점유관계 미상", "현장조사에서 확인되지 않았습니다"));
+  } else {
+    rows.push(checkRow("info", `점유 ${occupancy}`, "현황조사서 기준"));
+  }
+
+  return `
+    <section class="detail-section">
+      <h3>빠른 점검</h3>
+      ${rows.join("")}
+      ${renderReportLink(item, detail, rights)}
+    </section>`;
+}
+
+function checkRow(state, title, sub) {
+  const mark = state === "warn" ? "!" : state === "unknown" ? "?" : state === "info" ? "·" : "✓";
+  return `
+    <div class="check-row is-${state}">
+      <span class="check-mark" aria-hidden="true">${mark}</span>
+      <div><strong>${escapeHtml(title)}</strong>${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</div>
+    </div>`;
+}
+
+// 경매지로 넘기는 카드. 문구는 지금 이 물건에서 궁금증이 가장 큰 쪽을 가리킨다.
+//
+// 두 경우에는 그리지 않는다.
+//   · 주소가 설정되지 않음 — 깨진 링크보다 없는 편이 낫다.
+//   · 기일이 지난 물건 — 경매지는 "지금 입찰할 수 있는 물건"만 보여줘서 0건으로 떨어진다.
+//     눌렀는데 빈 목록이 뜨면 유료 전환은커녕 신뢰가 깎인다(2026-10-10 실측).
+function renderReportLink(item, detail, rights) {
+  const base = state.reportBaseUrl;
+  const caseKey = (detail && detail.caseKey) || "";
+  if (!base || !caseKey) return "";
+
+  // 기일이 지났는지는 bidDate로 지금 계산한다. detail.auction.daysUntilSale은 크롤러가
+  // 수집하던 시점에 계산한 값이라 며칠 묵으면 어긋난다 — 바로 위 숫자 칸의 D-day와
+  // 다른 답을 내는 순간, 둘 중 어느 쪽이 맞는지 화면에서 알 수 없게 된다.
+  const days = daysUntil(item.bidDate);
+  const fallback = detail && detail.auction ? detail.auction.daysUntilSale : null;
+  const remaining = days !== null ? days : fallback;
+  if (remaining !== null && remaining < 0) return "";
+
+  const title = rights && rights.inheritedKinds.length
+    ? "무엇을 떠안는지 보기"
+    : rights && rights.opposableTenantCount > 0
+      ? `임차인 ${rights.opposableTenantCount}명 중 누가 대항력 있는지 보기`
+      : "법원 문서 원문까지 확인하기";
+
+  return `
+    <a class="report-link" href="${escapeHtml(`${base}/?q=${encodeURIComponent(caseKey)}`)}" target="_blank" rel="noopener noreferrer">
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <p>말소기준권리 · 임차인별 전입일과 대항력 · 인수 예상 금액</p>
+      </div>
+      <span class="report-go">법원경매 리포트 →</span>
+    </a>`;
+}
+
+// ② 가격이 내려온 길 — "유찰 9회"라는 숫자 하나로는 얼마에서 얼마까지 왔는지 모른다.
+// 회차 표를 열 줄 늘어놓는 대신 한 줄과 작은 꺾은선으로 줄인다.
+function renderPriceLadder(item, detail) {
+  const results = (detail && detail.saleResults) || [];
+  const appraisal = Number(item.appraisal) || 0;
+  const minBid = Number(item.minBid) || 0;
+  if (results.length < 2 || appraisal <= 0 || minBid <= 0) return "";
+
+  const ratio = Math.max(1, Math.round((minBid / appraisal) * 100));
+  return `
+    <section class="detail-section">
+      <h3>가격이 내려온 길</h3>
+      <div class="ladder-row">
+        <div>
+          <strong>${escapeHtml(formatWon(appraisal))} → ${escapeHtml(formatWon(minBid))}</strong>
+          <small>${escapeHtml(failCountLabel(failCountOf(item, detail)))} · 감정가의 ${ratio}%</small>
+        </div>
+        ${ladderSpark(results, appraisal, minBid)}
+      </div>
+    </section>`;
+}
+
+function ladderSpark(results, appraisal, minBid) {
+  const WIDTH = 150;
+  const HEIGHT = 32;
+  const points = results
+    .map((row, index) => {
+      const x = (index / Math.max(1, results.length - 1)) * WIDTH;
+      const y = HEIGHT - Math.min(1, (Number(row.minimumBid) || 0) / appraisal) * HEIGHT;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const lastY = (HEIGHT - Math.min(1, minBid / appraisal) * HEIGHT).toFixed(1);
+
+  return `
+    <svg class="ladder-spark" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}" aria-hidden="true">
+      <polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity="0.5" />
+      <circle cx="${WIDTH}" cy="${lastY}" r="3" fill="var(--signal)" />
+    </svg>`;
+}
+
 
 // 공시기준가가 무엇을 근거로 한 값인지(공동주택가격/개별공시지가/기준시가)와 기준연도·호수는
 // 예전에 각각 제 몫의 숫자 타일을 차지했다. 값 자리에 "2026년"이 큼직하게 박힌 타일이
@@ -2963,6 +3165,7 @@ function officialBasisNote(item) {
   return parts.join(" · ");
 }
 
+
 // 최저입찰가나 공시기준가 한쪽이 비면 잔존 비율 자체가 없다. 그때 "잔존 "만 남기면
 // 값이 잘린 것처럼 읽히므로 근거 줄을 통째로 비운다.
 function residualNote(item) {
@@ -2970,6 +3173,7 @@ function residualNote(item) {
   if (!item.officialComparable || ratio === null) return "";
   return `잔존 ${Math.max(1, Math.round(ratio * 100))}%`;
 }
+
 
 // 실거래 추정가는 "인근 실거래 n건의 ㎡당 중앙값 × 이 물건 면적"이다. 실측해 보면
 // 그 n건이 3건이고 ㎡당 389만~1,858만으로 4.8배가 벌어지는 일이 흔하다. 게다가
@@ -2985,36 +3189,13 @@ function marketEstimateLine(item) {
   return `<p class="address">이 면적 환산 <strong>${formatWon(value)}</strong> · 최저입찰가는 그 대비 ${escapeHtml(formatSignedPercent(item.marketDiscount))} · ${deals.length}건 중앙값${escapeHtml(nearbySpreadNote(deals))}</p>`;
 }
 
+
 function nearbySpreadNote(deals) {
   const prices = deals.map((deal) => Number(deal.pricePerSqm) || 0).filter((value) => value > 0);
   if (prices.length < 2) return "";
   const spread = Math.max(...prices) / Math.min(...prices);
   // 표본끼리 몇 배씩 벌어져 있으면 중앙값은 대푯값이 아니다. 그 사실을 숨기지 않는다.
   return spread >= 2 ? ` · 편차 ${stripZero(spread)}배` : "";
-}
-
-// ① 권리·위험 — 돈을 더 내야 하는 사유만 모은다. 첫 화면 다음에 바로 온다.
-function renderRiskGroup(item, detail, loading) {
-  if (loading && !detail) {
-    return `<section class="detail-section"><p class="address">권리 정보를 불러오는 중입니다…</p></section>`;
-  }
-  const sections = sourceKind(item) === "onbid" ? onbidRiskSections(detail) : courtRiskSections(detail);
-  const checks = mergeChecks(item, detail);
-  if (checks.length) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>확인 항목</h3>
-        <div class="tag-row">${checks.map((check) => `<span class="tag">${escapeHtml(check)}</span>`).join("")}</div>
-      </section>`);
-  }
-  return sections.filter(Boolean).join("");
-}
-
-// ② 물건 자체 — 면적·일정·건축물. 판단의 재료지 경고는 아니다.
-function renderSubjectGroup(item, detail, loading) {
-  if (loading && !detail) return "";
-  const sections = sourceKind(item) === "onbid" ? onbidSubjectSections(detail) : courtSubjectSections(detail);
-  return sections.filter(Boolean).join("");
 }
 
 // ③ 참고 자료 — 기본으로 접는다.
@@ -3024,9 +3205,13 @@ function renderSubjectGroup(item, detail, loading) {
 // 실패한 것과 사건 서류는 여기로 내린다.
 function renderReferenceGroup(item, detail, loading) {
   if (loading && !detail) return "";
+  const onbid = sourceKind(item) === "onbid";
   const sections = [
     renderNearbyDeals(item),
-    ...(sourceKind(item) === "onbid" ? onbidReferenceSections(detail) : courtReferenceSections(detail))
+    // 건축물대장·입찰일정·면적은 판단의 재료지 경고가 아니다. 예전에는 펼친 채로 뒀는데,
+    // 첫 화면이 "넘길까 말까"에 답해야 해서 여기로 내렸다.
+    ...(onbid ? onbidSubjectSections(detail) : courtSubjectSections(detail)),
+    ...(onbid ? onbidReferenceSections(detail) : courtReferenceSections(detail))
   ].filter(Boolean);
   if (!sections.length) return "";
 
@@ -3044,7 +3229,8 @@ function referenceSummaryLabel(item, detail) {
   const labels = [];
   if ((item.nearbyDeals || []).length) labels.push("인근 실거래");
   if (detail && detail.transactions) labels.push("국토부 실거래");
-  if (detail && (detail.documents || []).length) labels.push("법원 문서");
+  if (detail && (detail.documents || []).length) labels.push("법원 문서 원문");
+  if (detail && detail.building) labels.push("건축물대장");
   if (detail && (detail.appraisals || []).length) labels.push("감정평가서");
   if (detail && (detail.caseTables || []).length) labels.push("사건 정보");
   return labels.slice(0, 3).join(" · ") || "원문 자료";
@@ -3416,30 +3602,24 @@ function renderCourtDocuments(documents) {
     <section class="detail-section">
       <h3>법원 문서</h3>
       <div class="doc-list">
-        ${docs.map((doc, index) => renderCourtDocRow(doc, index)).join("")}
+        ${docs.map((doc) => renderCourtDocRow(doc)).join("")}
       </div>
     </section>`;
 }
 
-// 본문이 있으면 앱 안에서 펼쳐 읽고, 없으면 법원 사이트로 보낸다.
+// 문서는 법원경매정보로 보낸다.
 //
-// 감정평가서는 실제로 PDF라 크롤러가 본문을 못 준다. 그 줄에까지 "본문 보기"를 달면
-// 눌렀을 때 빈 창이 뜬다. 어느 쪽인지는 doc.body가 있느냐로 갈린다.
-function renderCourtDocRow(doc, index) {
-  const hasBody = Boolean(doc.body);
+// 2026-09-19에는 매각물건명세서·현황조사서 본문을 앱 안에서 읽게 해 뒀었다. 그런데
+// 그 본문이 곧 권리분석 원재료라서, 꽁지맵은 "있다/없다"까지만 말하고 "무엇인지"는
+// 경매지로 보내기로 정했다(2026-10-10). 공개 문서이므로 숨기지는 않고 원문으로 넘긴다.
+function renderCourtDocRow(doc) {
   return `
     <div class="doc-row">
       <div>
         <strong>${escapeHtml(doc.type)}</strong>
-        <p class="doc-preview">${hasBody ? `${escapeHtml(doc.preview)}…` : "본문이 PDF라 여기서는 못 읽습니다. 법원 사이트에서 열람하세요."}</p>
+        <p class="doc-preview">대법원 법원경매정보에서 원문을 열람할 수 있습니다.</p>
       </div>
-      ${
-        hasBody
-          ? `<button class="doc-link" type="button" data-doc="${index}">본문 보기</button>`
-          : doc.sourceUrl
-            ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>`
-            : ""
-      }
+      ${doc.sourceUrl ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>` : ""}
     </div>`;
 }
 
@@ -3645,44 +3825,6 @@ function pickCaseRows(tables) {
   return picked;
 }
 
-// 문서 본문 뷰어. 사진 뷰어와 같은 오버레이 자리를 쓰지만 성격이 다르다 — 사진은
-// 한눈에 보고 닫는 것이고 문서는 길게 읽는 것이라, 자기 스크롤과 닫기 버튼을 갖는다.
-// 바깥을 누르면 닫히되 본문 안을 누르면 닫히지 않는다: 글을 드래그해 읽다가
-// 창이 사라지면 안 된다(사진 뷰어는 아무 데나 눌러도 닫히는 게 맞아서 그대로 뒀다).
-function bindDocViewer() {
-  const documents = (state.detailData && state.detailData.documents) || [];
-  dom.detail.querySelectorAll("[data-doc]").forEach((button) => {
-    button.addEventListener("click", () => openDocViewer(documents[Number(button.dataset.doc)]));
-  });
-}
-
-function openDocViewer(doc) {
-  if (!doc || !doc.body) return;
-  document.querySelector(".doc-viewer")?.remove();
-
-  const collected = formatCollectedAt(doc.collectedAt);
-  const viewer = document.createElement("div");
-  viewer.className = "doc-viewer";
-  viewer.innerHTML = `
-    <article class="doc-sheet" role="dialog" aria-modal="true" aria-label="${escapeHtml(doc.type)} 본문">
-      <header class="doc-sheet-head">
-        <div>
-          <strong>${escapeHtml(doc.type)}</strong>
-          ${collected ? `<span class="case-no">${escapeHtml(collected)}</span>` : ""}
-        </div>
-        <button type="button" class="doc-sheet-close" aria-label="닫기">✕</button>
-      </header>
-      <div class="doc-sheet-body">${escapeHtml(doc.body)}</div>
-      ${doc.sourceUrl ? `<footer class="doc-sheet-foot"><a href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">법원경매정보에서 원문 보기 ↗</a></footer>` : ""}
-    </article>`;
-
-  viewer.addEventListener("click", (event) => {
-    if (event.target === viewer || event.target.closest(".doc-sheet-close")) viewer.remove();
-  });
-  document.body.append(viewer);
-  viewer.querySelector(".doc-sheet-close")?.focus();
-}
-
 // 사진 클릭 시 원본 크기로 확대
 function bindPhotoViewer() {
   dom.detail.querySelectorAll(".detail-photo").forEach((button) => {
@@ -3756,11 +3898,11 @@ function renderVerdict(item, detail) {
 
   if (isShareSale(item, detail)) reasons.push("지분 매각");
 
-  // 매각물건명세서가 "매각으로 소멸되지 아니한다"고 적어 놓은 권리. 낙찰가에 그대로
-  // 얹히는 돈이라 유찰 횟수보다 먼저 말해야 한다. 경매 물건에는 공매 같은 임대차 배열이
-  // 없어서, 이 신호를 넣기 전에는 인수 위험이 배너에 한 번도 나타나지 않았다.
-  const carryOver = (detail && detail.carryOver) || null;
-  if (carryOver && carryOver.state === "carried") reasons.push("인수되는 권리 있음");
+  // 낙찰가에 그대로 얹히는 권리. 2026-09-20에는 매각물건명세서 본문을 정규식으로 긁어
+  // 짐작했는데, 크롤러가 rights.inherited로 구조화해서 주기 시작했다(실측 36%).
+  // 같은 규칙을 두 곳에 두지 않으려고 그 정규식은 걷어냈다.
+  const inherited = (detail && detail.rights && detail.rights.inheritedKinds) || [];
+  if (inherited.length) reasons.push("인수되는 권리 있음");
 
   // 보증금은 낙찰가에 얹히는 돈이다. 최저가에 견줘 무시 못 할 크기면 먼저 말한다.
   const deposit = tenantDepositTotal(detail);
@@ -3773,8 +3915,8 @@ function renderVerdict(item, detail) {
   if (!reasons.length) return "";
 
   // 조언은 가장 비싼 사유를 가리킨다. 인수 조항이 있으면 그것이 곧 추가 매수대금이다.
-  const advice = carryOver && carryOver.state === "carried"
-    ? "매각물건명세서의 인수 조항부터 읽으세요."
+  const advice = inherited.length
+    ? "싼 데는 이유가 있습니다 — 아래 점검을 먼저 보세요."
     : depositHeavy
       ? "보증금이 배분되는지부터 확인하세요."
       : "할인율이 아니라 유찰 사유부터 확인하세요.";
@@ -3824,11 +3966,11 @@ function isShareSale(item, detail) {
   return /지분/.test(String(item.memo || ""));
 }
 
-function detailStat(label, value, tone = "", note = "") {
+function detailStat(label, value, tone = "", note = "", big = false) {
   // 근거가 값과 같은 말이면(기일 미정 → "미정 / 미정") 아무것도 더하지 않는다.
   const showNote = note && note !== value;
   return `
-    <div class="detail-stat">
+    <div class="detail-stat${big ? " is-lead" : ""}">
       <span>${escapeHtml(label)}</span>
       <strong class="${tone}">${escapeHtml(value)}</strong>
       ${showNote ? `<small>${escapeHtml(note)}</small>` : ""}

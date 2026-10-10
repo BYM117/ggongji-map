@@ -3161,114 +3161,173 @@ select:focus-visible {
   }
 }
 
-/* ── 문서 본문 뷰어 (2026-09-19) ──────────────────────────────────────────────
-   매각물건명세서·현황조사서는 이제 본문을 앱 안에서 읽는다. 사진 뷰어(.photo-viewer)와
-   같은 오버레이 자리를 쓰지만, 길게 읽는 것이라 시트를 두고 그 안에서만 스크롤한다. */
-.doc-viewer {
-  position: fixed;
-  inset: 0;
-  z-index: 95;
+/* ═══════════════════════════════════════════════════════════════
+   상세 패널 — 빠른 점검 · 경매지 퍼널 · 가격 사다리 (2026-10-10)
+
+   꽁지맵은 "넘길까 말까"까지만 답하고, "왜 그런지"는 경매지로 보낸다.
+   그래서 점검 줄은 상태(있다/없다/모른다)만 말하고 내용은 담지 않는다.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 첫 두 칸은 질문 순서상 제일 먼저 답해야 하는 것이라 크게 둔다 — 얼마냐 / 싼 거 맞냐. */
+.detail-stat.is-lead strong {
+  font-size: 25px;
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.check-row + .check-row {
+  margin-top: 7px;
+}
+
+.check-row strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 750;
+  line-height: 1.3;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.check-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.check-mark {
+  flex: none;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(20, 22, 26, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: photo-fade 0.18s ease;
+  width: 19px;
+  height: 19px;
+  margin-top: 1px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.doc-sheet {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(720px, 100%);
-  max-height: min(820px, 100%);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
+.check-row.is-warn .check-mark {
+  background: var(--signal);
+  color: #fff;
 }
 
-.doc-sheet-head {
+.check-row.is-warn strong {
+  color: var(--signal-deep);
+}
+
+/* 통과는 조용한 초록. 할인율에 색을 쓰지 않는다는 원칙은 "좋고 나쁨"에 대한 것이고,
+   여기는 점검 결과라 상태색이 맞다. 다만 채도를 낮춰 오렌지(지금 볼 것)를 가리지 않는다. */
+.check-row.is-ok .check-mark {
+  background: #dfe6e0;
+  color: #4a6b55;
+}
+
+.check-row.is-unknown .check-mark {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/* 점유관계처럼 통과/실패가 아닌 사실에는 체크를 주지 않는다 — 초록 체크는 "안전하다"로 읽힌다. */
+.check-row.is-info .check-mark {
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 0;
+}
+
+/* 경매지로 넘기는 카드. 궁금증이 가장 큰 자리(점검 바로 밑)에 둔다. */
+.report-link {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-}
-
-.doc-sheet-head > div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.doc-sheet-head strong {
-  font-size: 15px;
-  font-weight: 780;
-}
-
-.doc-sheet-close {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--line);
+  margin-top: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-/* 원문 줄바꿈이 곧 문서의 구조다(표 행·항목 구분). pre-wrap으로 그대로 살린다. */
-.doc-sheet-body {
-  padding: 16px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  font-size: 13.5px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  /* 본문은 사용자가 긁어서 옮겨 적는 일이 많다. 선택을 막지 않는다. */
-  user-select: text;
-}
-
-.doc-sheet-foot {
-  padding: 12px 16px;
-  border-top: 1px solid var(--line);
-  text-align: right;
-}
-
-.doc-sheet-foot a {
-  color: #2368c7;
-  font-size: 12.5px;
-  font-weight: 700;
+  background: linear-gradient(145deg, #2b2e34, var(--frame, #211e1b));
+  color: #f3f1ec;
   text-decoration: none;
 }
 
-/* "본문 보기"는 .doc-link 모양을 그대로 쓰되 button 태그라 기본값을 지워 준다. */
-button.doc-link {
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
+.report-link strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 760;
+  line-height: 1.3;
+  /* 폰에서 "…대항력 있는지 보 / 기"처럼 단어 중간이 끊긴다. 한글은 어절 단위로 끊어야 읽힌다. */
+  word-break: keep-all;
+}
+
+.report-link p {
+  margin: 3px 0 0;
+  color: #b9b4ab;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.report-go {
+  flex: none;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.report-link:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* 가격이 내려온 길 — 회차 표 열 줄 대신 한 줄과 꺾은선. */
+.ladder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.ladder-row strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 750;
+}
+
+.ladder-row small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ladder-spark {
+  flex: none;
 }
 
 @media (max-width: 720px) {
-  .doc-viewer {
-    padding: 0;
-    place-items: end stretch;
+  /* 폰에서는 꺾은선이 금액을 밀어내므로 줄인다. 추세만 보이면 된다. */
+  .ladder-spark {
+    width: 96px;
   }
 
-  .doc-sheet {
-    width: 100%;
-    max-height: 88dvh;
-    border-radius: 16px 16px 0 0;
-  }
-
-  .doc-sheet-body {
-    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  .detail-stat.is-lead strong {
+    font-size: 20px;
   }
 }
