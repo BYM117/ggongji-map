@@ -570,3 +570,17 @@ upcoming). 목록 `minBid`가 아직 열리지도 않은 마지막 회차 가격
 덤으로 9/20에 만든 `carryOver` 정규식도 사라졌다 — 크롤러가 `rights.inherited`로
 구조화해서 주기 시작했으므로 같은 규칙을 두 곳에 둘 이유가 없다.
 **영향:** `lib/court-detail.mjs`, `app.js`, `styles.css`
+
+## 2026-10-10 · 사건이 안 실린 법원 링크는 내보내지 않는다
+
+**확정:** `source_url`·`detail_url`에 `paramData`/`encParam`이 있을 때만 링크로 내보낸다
+(`caseAwareUrl`). 없으면 빈 문자열로 만들고, 화면은 그 줄에 "법원경매정보 › 경매사건검색에서
+사건번호로 조회하세요"와 조회용 법원·사건번호를 대신 적는다.
+**이유:** 법원경매정보(courtauction.go.kr)는 POST·세션으로 움직여 URL에 사건이 실리지
+않는다. 크롤러가 주는 감정평가서·현황조사서 링크와 `auction.detail_url`은 전부
+`index.on?w2xPath=…PGJ159M00.xml` 꼴이라, 눌러 보면 법원부터 다시 고르는 **빈 검색 양식**이
+뜬다(실측 30건에서 각각 30/30). 그 화면에서 검색을 해 봐도 URL은 바뀌지 않는다.
+반대로 매각물건명세서는 전자문서뷰어(ecfs.scourt.go.kr)로 가고 paramData에 사건이 들어
+있어 30/30이 그 문서로 바로 열린다. "원문 보기"라고 써 놓고 빈 화면을 주는 것은
+링크가 없는 것보다 나쁘다.
+**영향:** `lib/court-detail.mjs`, `app.js`

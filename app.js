@@ -3573,30 +3573,15 @@ function formatOnbidDate(value, yearMode = "auto") {
 //   위험 — 지분매각
 //   물건 — 건축물대장 · (단지가 잡힌) 국토부 실거래
 //   참고 — (단지를 못 잡은) 국토부 실거래 · 법원 문서 · 사건 정보 · 원문 링크
-function courtRiskSections(detail) {
-  if (!detail) return [];
-  const sections = [];
-
-  if (detail.share && detail.share.isShareSale) {
-    sections.push(`
-      <section class="detail-section">
-        <h3>지분 매각 주의</h3>
-        <p class="address">전체가 아닌 지분만 매각됩니다${detail.share.fraction ? ` (지분 ${escapeHtml(detail.share.fraction)})` : ""}. 단독 사용·처분이 어려울 수 있습니다.</p>
-      </section>`);
-  }
-
-  // 매각물건명세서는 "무엇이 인수되는가"를 법원이 직접 적어 놓은 문서다. 현황조사서는
-  // 누가 살고 있는지를 적는다. 둘 다 이 묶음이 다루는 바로 그 내용이라 참고 자료로
-  // 내려보내지 않는다 — 본문을 읽을 수 있게 해 놓고 접어 두면 읽을 수 없는 것과 같다.
-  sections.push(renderCourtDocuments(detail.documents));
-
-  // 권리 체크 플래그는 "확인 항목" 태그 행에 합집합으로 이미 나갔다. 여기서 또 찍지 않는다.
-  return sections;
-}
-
-function renderCourtDocuments(documents) {
+function renderCourtDocuments(documents, detail) {
   const docs = documents || [];
   if (!docs.length) return "";
+
+  // 링크로 못 여는 문서가 하나라도 있으면 조회에 쓸 값을 적어 둔다.
+  // 법원경매정보는 법원과 사건번호를 각각 골라야 해서 둘 다 필요하다.
+  const needsLookup = docs.some((doc) => !doc.sourceUrl);
+  const court = (detail && detail.court) || "";
+  const caseKey = (detail && detail.caseKey) || "";
 
   return `
     <section class="detail-section">
@@ -3604,6 +3589,9 @@ function renderCourtDocuments(documents) {
       <div class="doc-list">
         ${docs.map((doc) => renderCourtDocRow(doc)).join("")}
       </div>
+      ${needsLookup && court && caseKey
+        ? `<p class="address">조회용 — <strong>${escapeHtml(court)}</strong> · <strong>${escapeHtml(caseKey)}</strong></p>`
+        : ""}
     </section>`;
 }
 
@@ -3613,11 +3601,13 @@ function renderCourtDocuments(documents) {
 // 그 본문이 곧 권리분석 원재료라서, 꽁지맵은 "있다/없다"까지만 말하고 "무엇인지"는
 // 경매지로 보내기로 정했다(2026-10-10). 공개 문서이므로 숨기지는 않고 원문으로 넘긴다.
 function renderCourtDocRow(doc) {
+  // 링크가 비어 있다는 것은 "그 문서를 URL로 바로 열 수 없다"는 뜻이다(서버가 걸러 준다).
+  // 그때 "원문 ↗"을 달면 빈 검색 양식으로 보내게 되므로, 어디서 찾는지를 대신 적는다.
   return `
     <div class="doc-row">
       <div>
         <strong>${escapeHtml(doc.type)}</strong>
-        <p class="doc-preview">대법원 법원경매정보에서 원문을 열람할 수 있습니다.</p>
+        <p class="doc-preview">${doc.sourceUrl ? "눌러서 법원 전자문서뷰어에서 바로 엽니다." : "법원경매정보 › 경매사건검색에서 사건번호로 조회하세요."}</p>
       </div>
       ${doc.sourceUrl ? `<a class="doc-link" href="${escapeHtml(doc.sourceUrl)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>` : ""}
     </div>`;
@@ -3635,7 +3625,11 @@ function courtSubjectSections(detail) {
 
 function courtReferenceSections(detail) {
   if (!detail) return [];
-  const sections = [];
+  // 문서 목록은 여기 있어야 한다. 예전에는 courtRiskSections 안에 있었는데,
+  // 2026-10-10에 그 자리를 "빠른 점검"으로 갈아끼우면서 호출이 끊겨 섹션이 통째로
+  // 사라졌다(하루 동안 배포본에서 법원 문서가 안 보였다). 지분 매각은 빠른 점검
+  // 첫 줄이 이미 말하므로 따로 섹션을 두지 않는다.
+  const sections = [renderCourtDocuments(detail.documents, detail)];
 
   if (!molitMatched(detail.transactions)) sections.push(renderMolitTransactions(detail.transactions));
 
@@ -3654,6 +3648,10 @@ function courtReferenceSections(detail) {
       </section>`);
   }
 
+  // 크롤러가 주는 detail_url은 사건이 안 실린 "경매사건검색" 화면 주소라서, 서버가
+  // caseAwareUrl()로 걸러 빈 문자열로 만든다(실측 30/30이 그랬다). 그래서 이 줄은
+  // 지금 거의 안 그려진다 — 사건이 실린 주소가 오기 시작하면 그때 살아난다.
+  // 되살리고 싶어지면 먼저 눌러 보고 판단할 것. 빈 화면으로 보내는 링크는 없느니만 못하다.
   if (detail.auction && detail.auction.detailUrl) {
     sections.push(`
       <section class="detail-section">
